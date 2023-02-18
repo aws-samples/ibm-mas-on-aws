@@ -1,0 +1,367 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Custom VPC with a Public and Private Subnet for OCP
+Parameters:
+  VpcCIDR:
+    Description: Enter the IP range (CIDR notation) for VPC
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnet1CIDR:
+    Description: Enter the IP range (CIDR notation)  for the public subnet in AZ A
+    Type: String
+    Default: 10.0.0.0/19
+  PublicSubnet2CIDR:
+    Description: Enter the IP range (CIDR notation)  for the public subnet in AZ B
+    Type: String
+    Default: 10.0.32.0/19
+  PublicSubnet3CIDR:
+    Description: Enter the IP range (CIDR notation)  for the public subnet in AZ C
+    Type: String
+    Default: 10.0.64.0/19
+  PrivateSubnet1CIDR:
+    Description: Enter the IP range (CIDR notation)  for the private subnet in AZ A
+    Type: String
+    Default: 10.0.128.0/19
+  PrivateSubnet2CIDR:
+    Description: Enter the IP range (CIDR notation)  for the private subnet in AZ B
+    Type: String
+    Default: 10.0.160.0/19
+  PrivateSubnet3CIDR:
+    Description: Enter the IP range (CIDR notation)  for the private subnet in AZ C
+    Type: String
+    Default: 10.0.192.0/19
+  UniqueStr:
+    Description: Unique string to tag your resources
+    Type: String
+    Default: ocp410
+Resources:
+
+  openshiftVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]] ## Note for installing into Existing VPC, The VPC must not use the kubernetes.io/cluster/.*: owned tag
+        Value: "shared"
+      - Key:  Name
+        Value: !Join ['-', [!Ref "AWS::StackName", !Ref UniqueStr, 'vpc']]
+
+  openshiftInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value: "owned"
+      - Key:  Name
+        Value: !Join ['-', [!Ref "AWS::StackName", !Ref UniqueStr, 'igw']]
+
+  openshiftVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref openshiftVPC
+      InternetGatewayId: !Ref openshiftInternetGateway
+
+  openshiftPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref openshiftVPC
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [!Ref "AWS::StackName", !Ref UniqueStr, 'public']]
+
+  openshiftPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: openshiftVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref openshiftPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref openshiftInternetGateway
+
+  openshiftPublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref openshiftVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'public', !Select [ 0, !GetAZs '' ]]]
+
+  openshiftPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref openshiftVPC
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ] 
+      CidrBlock: !Ref PublicSubnet2CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'public', !Select [ 1, !GetAZs '' ]]]
+
+  openshiftPublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref openshiftVPC
+      AvailabilityZone: !Select [ 2, !GetAZs  '' ] 
+      CidrBlock: !Ref PublicSubnet3CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'public', !Select [ 2, !GetAZs '' ]]]
+
+  # d) Associate the public route table with the public subnet in AZ 1
+  openshiftPublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref openshiftPublicRouteTable
+      SubnetId: !Ref openshiftPublicSubnet1
+  
+  # Associate the public route table with the public subnet in AZ 2
+  openshiftPublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref openshiftPublicRouteTable
+      SubnetId: !Ref openshiftPublicSubnet2
+
+  # Associate the public route table with the public subnet in AZ 3
+  openshiftPublicSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref openshiftPublicRouteTable
+      SubnetId: !Ref openshiftPublicSubnet3
+
+  openshiftEIPforNatGateway1:
+    Type: AWS::EC2::EIP
+    DependsOn: openshiftVPCGatewayAttachment
+    Properties:
+      Domain: vpc 
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'eip', !Select [ 0, !GetAZs '']]]
+
+  openshiftEIPforNatGateway2:
+    Type: AWS::EC2::EIP
+    DependsOn: openshiftVPCGatewayAttachment
+    Properties:
+      Domain: vpc 
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'eip', !Select [ 1, !GetAZs '' ]]]
+
+  openshiftEIPforNatGateway3:
+    Type: AWS::EC2::EIP
+    DependsOn: openshiftVPCGatewayAttachment
+    Properties:
+      Domain: vpc 
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'eip', !Select [ 2, !GetAZs '' ]]]
+
+  openshiftNatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt openshiftEIPforNatGateway1.AllocationId
+      SubnetId: !Ref openshiftPublicSubnet1
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'nat', !Select [ 0, !GetAZs '']]]
+
+  openshiftNatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt openshiftEIPforNatGateway2.AllocationId
+      SubnetId: !Ref openshiftPublicSubnet2
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'nat', !Select [ 1, !GetAZs '' ]]]
+
+  openshiftNatGateway3:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt openshiftEIPforNatGateway3.AllocationId
+      SubnetId: !Ref openshiftPublicSubnet3
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'nat', !Select [ 2, !GetAZs '' ]]]
+
+  openshiftPrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref openshiftVPC
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]        
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'private', !Select [ 0, !GetAZs '' ]]]
+
+  openshiftPrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref openshiftVPC
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]        
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'private', !Select [ 1, !GetAZs '' ]]]
+        
+  openshiftPrivateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref openshiftVPC
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]        
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'private', !Select [ 2, !GetAZs '' ]]]
+
+  openshiftPrivateRouteForAz1:
+    Type: AWS::EC2::Route
+    DependsOn: openshiftVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref openshiftPrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref openshiftNatGateway1 
+
+  openshiftPrivateRouteForAz2:
+    Type: AWS::EC2::Route
+    DependsOn: openshiftVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref openshiftPrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref openshiftNatGateway2
+
+  openshiftPrivateRouteForAz3:
+    Type: AWS::EC2::Route
+    DependsOn: openshiftVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref openshiftPrivateRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref openshiftNatGateway3
+
+  openshiftPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref openshiftVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ] 
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      MapPublicIpOnLaunch: false 
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]        
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'private', !Select [ 0, !GetAZs '' ]]]
+
+  openshiftPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref openshiftVPC
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      MapPublicIpOnLaunch: false 
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]        
+        Value:  "owned"
+      - Key:  Name
+        Value:  !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'private', !Select [ 1, !GetAZs '' ]]]
+
+  openshiftPrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref openshiftVPC
+      AvailabilityZone: !Select [ 2, !GetAZs  '' ] 
+      CidrBlock: !Ref PrivateSubnet3CIDR
+      MapPublicIpOnLaunch: false 
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]        
+        Value:  "owned"
+      - Key:  Name
+        Value: !Join ['-', [ !Ref "AWS::StackName", !Ref UniqueStr, 'private', !Select [ 2, !GetAZs '' ]]]
+
+  openshiftPrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref openshiftPrivateRouteTable1
+      SubnetId: !Ref openshiftPrivateSubnet1
+  
+  openshiftPrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref openshiftPrivateRouteTable2
+      SubnetId: !Ref openshiftPrivateSubnet2
+
+  openshiftPrivateSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref openshiftPrivateRouteTable3
+      SubnetId: !Ref openshiftPrivateSubnet3
+
+  openshiftS3GatewayEndpoint:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - '*'
+            Resource:
+              - '*'
+      RouteTableIds:
+        - !Ref openshiftPublicRouteTable
+        - !Ref openshiftPrivateRouteTable1
+        - !Ref openshiftPrivateRouteTable2
+        - !Ref openshiftPrivateRouteTable3
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcEndpointType: Gateway
+      VpcId: !Ref openshiftVPC
+
+Outputs:
+  outputVPC:
+    Description: A reference to the created VPC
+    Value: !Ref openshiftVPC
+  outputPublicSubnets:
+    Description: List of the public subnetIDs created
+    Value: !Join [ ",", [ !Ref openshiftPublicSubnet1, !Ref openshiftPublicSubnet2 , !Ref openshiftPublicSubnet3 ]]
+  outputPrivateSubnet1:
+    Description: Private SubnetId 1
+    Value: !Ref openshiftPrivateSubnet1
+  outputPrivateSubnet2:
+    Description: Private SubnetId 2
+    Value: !Ref openshiftPrivateSubnet2
+  outputPrivateSubnet3:
+    Description: Private SubnetId 3
+    Value: !Ref openshiftPrivateSubnet3
+  outputPrivateSubnetSeedInstance:
+    Description: Private Subnet ID for Seed Instance
+    Value: !Ref openshiftPrivateSubnet1
+  outputPublicSubnetBastionInstance:
+    Description: Private Subnet ID for Seed Instance
+    Value: !Ref openshiftPublicSubnet1
+  

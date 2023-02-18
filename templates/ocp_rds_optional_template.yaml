@@ -1,0 +1,235 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: 'RDS MS SQL CFN Template'
+Parameters:
+  RDSDBInstanceClass:
+    Default: db.t3.xlarge
+    Description: Select DB instance. Burstable classes (includes t classes). Standard classes (includes m classes). Memory optimized classes (includes r and x classes)
+    Type: String
+    AllowedValues:
+    - db.t3.xlarge
+    - db.t3.2xlarge
+    - db.m6i.large
+    - db.m6i.xlarge
+    - db.m6i.2xlarge
+    - db.m6i.4xlarge
+    - db.m6i.8xlarge    
+    - db.m5.large
+    - db.m5.xlarge
+    - db.m5.2xlarge
+    - db.m5.4xlarge
+    - db.r5.large
+    - db.r5.xlarge
+    - db.r5.2xlarge
+    - db.r5.4xlarge
+    - db.r5.8xlarge
+  RDSAllocatedStorage:
+    Default: 30
+    Description: The size of the Deep Security database (Gb)
+    Type: Number
+    MinValue: 20
+    MaxValue: 16384
+    ConstraintDescription: must be between 20 and 16Tb.
+  RDSDBInstanceIdentifier:
+    Default: masonaws
+    Description: A name for the DB instance
+    Type: String
+
+  RDSBackupRetentionPeriod:
+    Default: 1
+    Description: Days to keep automatic RDS backups (0-35)
+    Type: Number
+    MinValue: 0
+    MaxValue: 35
+    ConstraintDescription: must be between 0 and 35 days.
+  RDSMasterUsername:
+    NoEcho: true
+    Description: Admin account username to be used for the database instance
+    Type: String
+    MinLength: 1
+    MaxLength: 16
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric
+      characters.
+  RDSMasterUserPassword:
+    NoEcho: true
+    Description: Password to be used for the database admin account
+    Type: String
+    MinLength: 8
+    MaxLength: 41
+    AllowedPattern: '[a-zA-Z0-9!^*\-_+]*'
+    ConstraintDescription: Can only contain alphanumeric characters or the following
+      special characters !^*-_+ Min length 8, max length 41
+  StorageType:
+    Default: gp2
+    Type: String
+    AllowedValues:
+    - gp2
+  MultiAZ:
+    Description: Use Multi-AZ or SQL Mirroring Option Group for RDS Instance
+    Type: String
+    Default: 'true'
+    AllowedValues:
+    - 'true'
+    - 'false'
+  RDSPrivateSubnetId1:
+    Description: Private SubnetID 1 for RDS Subnet group
+    Type: String
+  RDSPrivateSubnetId2:
+    Description: Private SubnetID 2 for RDS Subnet group
+    Type: String
+  RDSPrivateSubnetId3:
+    Description: Private SubnetID 3 for RDS Subnet group
+    Type: String
+  RDSPrivateSubnet1CIDR:
+    Description: CIDR for the Private Subnet Id 1
+    Type: String
+  RDSPrivateSubnet2CIDR:
+    Description: CIDR for the Private Subnet Id 2
+    Type: String
+  RDSPrivateSubnet3CIDR:
+    Description: CIDR for the Private Subnet Id 3
+    Type: String
+  BastionSecurityGroupId:
+    Description: Security Group Id for Bastion Hosts
+    Type: String
+  UniqueStr:
+    Description: Unique string to tag your resources
+    Type: String
+    Default: ocp410
+  VpcId:
+    Type: String
+    Description: VPC Id for the Existing VPC
+  RDSKMSKey: 
+    Type: String
+    Description: KMS Key ARN to encrypt to RDS
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName:
+        Fn::Sub: "${AWS::StackName}-db-subnet-group"
+      DBSubnetGroupDescription: RDS Custom Private Network
+      SubnetIds:
+      - !Ref RDSPrivateSubnetId1
+      - !Ref RDSPrivateSubnetId2
+      - !Ref RDSPrivateSubnetId3
+  
+# Seed Instance Security group. Allow SSH from anywhere
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable RDS SQL access via port 1433
+      SecurityGroupIngress:
+      - Description: "Allow traffic on Port 1433 from the Bastion Security group"
+        IpProtocol: tcp
+        FromPort: 1433
+        ToPort: 1433
+        SourceSecurityGroupId: !Ref BastionSecurityGroupId
+      - Description: "Allow traffic on Port 1433 from the Private Subnet 1 CIDR Ips"
+        IpProtocol: tcp
+        FromPort: 1433
+        ToPort: 1433
+        CidrIp: !Ref RDSPrivateSubnet1CIDR
+      - Description: "Allow traffic on Port 1433 from the Private Subnet 2 CIDR Ips"
+        IpProtocol: tcp
+        FromPort: 1433
+        ToPort: 1433
+        CidrIp: !Ref RDSPrivateSubnet2CIDR
+      - Description: "Allow traffic on Port 1433 from the Private Subnet 3 CIDR Ips"
+        IpProtocol: tcp
+        FromPort: 1433
+        ToPort: 1433
+        CidrIp: !Ref RDSPrivateSubnet3CIDR
+      SecurityGroupEgress:
+      - Description: "Allow traffic to Internet on all ports"
+        IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 0.0.0.0/0
+      VpcId: !Ref VpcId
+# Best Practice - Use KMS key to encrypt RDS
+#  RDSKMSKeyAlias:
+#    Type: AWS::KMS::Alias
+#    Properties:
+#      AliasName: alias/RDSKMSKey
+#      TargetKeyId:
+#        Ref: RDSKMSKey
+
+#  RDSKMSKey:
+#    Type: AWS::KMS::Key
+#    Properties:
+#      Description: KMS Key to encrypt RDS DB
+#      EnableKeyRotation: true    
+#      KeyPolicy:
+#        Version: 2012-10-17
+#        Id: rds-key-poicy
+#        Statement:
+#          - Sid: Enable IAM User Permissions
+#            Effect: Allow
+#            Principal:
+#              AWS: !Join
+#                - ''
+#                - - 'arn:'
+#                  - !Ref 'AWS::Partition'
+#                  - ':iam::'
+#                  - !Ref 'AWS::AccountId'
+#                  - ':root'
+#            Action: 'kms:*'
+#            Resource: '*'
+
+# IAM Role that will be used by RDS Enhanced Monitoring
+  EMIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole'
+        Path: "/"
+
+  OCPRDSDatabase:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: !Ref RDSAllocatedStorage
+      BackupRetentionPeriod: !Ref RDSBackupRetentionPeriod
+      LicenseModel: license-included
+      DBInstanceClass: !Ref RDSDBInstanceClass
+      DBInstanceIdentifier: !Ref RDSDBInstanceIdentifier
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DeletionProtection: true
+      PubliclyAccessible: false
+      Engine: sqlserver-se
+      EngineVersion: 15.00.4236.7.v1
+      MasterUsername: !Ref RDSMasterUsername
+      MasterUserPassword: !Ref RDSMasterUserPassword
+      VPCSecurityGroups:
+      - !Ref RDSSecurityGroup
+      MultiAZ: !Ref MultiAZ
+      StorageType: !Ref StorageType
+      StorageEncrypted: true
+      KmsKeyId: !Ref RDSKMSKey
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt EMIAMRole.Arn 
+      Tags:
+      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+        Value: "owned"
+
+Outputs:
+  OCPRDSDBEndpoint:
+    Description: Endpoint to be passed to DSM installation properties file
+    Value: !GetAtt OCPRDSDatabase.Endpoint.Address
+  OCPROCPRDSDBPort:
+    Description: Port to be passed to DSM installation properties file
+    Value: !GetAtt OCPRDSDatabase.Endpoint.Port
+  JDBCConnectionString:
+    Description: JDBC connection string to connect Maximo Manage to RDS. Remember to create a Database after the DB instance is ready
+    Value: !Join [ "", [ 'jdbc:sqlserver://', !GetAtt OCPRDSDatabase.Endpoint.Address, ':', !GetAtt OCPRDSDatabase.Endpoint.Port , ';databaseName=maxdb80;encrypt=true' ]]

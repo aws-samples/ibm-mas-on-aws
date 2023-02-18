@@ -1,0 +1,35 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+Metadata:
+  License: MIT-0
+Description: 'CFN Template to create a PHZ and associate with created VPC'
+Parameters:
+  PrivateHostedZone:
+    Description: Enter the DNS name for PHZ
+    Type: String
+  openshiftVPCId:
+    Description: Enter the VPCId that needs to be associated to the PHZ
+    Type: String
+
+Resources:
+## Private Hosted DNS. Associate it with the created VPC      
+  PrivateOCPDNS: 
+    Type: "AWS::Route53::HostedZone"
+    Properties: 
+      HostedZoneConfig: 
+        Comment: 'Private Hosted Zone for OCP Install'
+      Name: !Ref PrivateHostedZone
+      VPCs: 
+        - 
+          VPCId: !Ref openshiftVPCId
+          VPCRegion: !Ref "AWS::Region"
+      HostedZoneTags: 
+        - 
+          Key: 'Name'
+          Value: 'mymaximo'
+Outputs:
+  PHZId:
+    Description: Hosted Zone ID for the hosted zone created for the DNS Name
+    Value: !Ref PrivateOCPDNS

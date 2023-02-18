@@ -1,0 +1,440 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+Metadata:
+  License: MIT-0
+Description: 'CFN Template to create a Seed EC2 instance with ansible collection installed'
+Parameters:
+  KeyName:
+    Type: String
+    Description: ARN of the Key Pair created in Parameter store
+  InstanceType:
+    Description: Seed EC2 instance type
+    Type: String
+    Default: t2.large
+    ConstraintDescription: must be a valid EC2 instance type.
+  LatestSeedAmiId:
+    Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  PreReqS3Bucket:
+    Type:  String
+    Description: S3 bucket name of the pre-requisite bucket. Naming convention masocp-license-{AWS.Region}-{AWS.AccountNumber}
+  OCPClusterName:
+    Type: String
+    Description: Name of the OCP Cluster that will be created
+  OCPClusterVersion:
+    Type: String
+    Description: Version of the OCP Cluster
+  ClusterSize:
+    Type: String
+    Description: Cluster size - small, medium or large. Check the Cluster Size section at https://www.ibm.com/docs/en/mas87/8.7.0?topic=installation-considerations#Cluster%20Size
+    AllowedValues: 
+      - small
+      - medium
+      - large
+  SeedSubnetId:
+    Type: String
+    Description: Private SubnetId for the SeedEC2 Instance
+  BastionSubnetId:
+    Type: String
+    Description: Public SubnetId for the Bastion Windows EC2 Instance
+  VpcId:
+    Type: String
+    Description: VPC Id for the Existing VPC
+  VpcCIDR:
+    Type: String
+    Description: VPC CIDR for the Existing VPC
+  PrivateSubnet1:
+    Type: String
+    Description: Private Subnet 1 in VPC
+  PrivateSubnet2:
+    Type: String
+    Description: Private Subnet 2 in VPC
+  PrivateSubnet3:
+    Type: String
+    Description: Private Subnet 3 in VPC
+  HostedZoneID:
+    Type: String
+    Description: HostedZoneId for the Private Hosted Zone
+  BaseDomain:
+    Type: String
+    Description: BaseDomain for the Private Hosted Zone
+  LatestBastionAmiId:
+    Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base'
+  RDPLocation:
+    Type: String
+    Description: 'Allow RDP from this CIDR. Carefully define this CIDR to allow RDP from the CIDR range'
+    AllowedPattern : ".+"
+    #  Default: '0.0.0.0/0'
+  
+  KMSKey: 
+    Type: String
+    Description: KMS Key ARN to encrypt to RDS
+  DeadLetterSNSTopic: 
+    Type: String
+    Description: Dead Letter SNS Topic  
+
+Resources:
+
+  # Seed Instance Role used by the instance Profile
+  SeedInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess'
+        Path: "/"
+
+# Instance Profile associated with the Seed EC2 instance
+  SeedInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      InstanceProfileName: 'SeedSeedEC2InstanceProf'
+      Path: "/"
+      Roles: 
+        - !Ref SeedInstanceRole
+# Seed Instance
+  SeedEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref 'InstanceType'
+      SecurityGroupIds: [!GetAtt SeedSecurityGroup.GroupId]
+      KeyName: !Ref 'KeyName'
+      ImageId: !Ref 'LatestSeedAmiId'
+      IamInstanceProfile: !Ref 'SeedInstanceProfile'
+      SubnetId: !Ref SeedSubnetId
+      BlockDeviceMappings:
+      - DeviceName: "/dev/xvda"
+        Ebs:
+          Encrypted: 'true'
+          VolumeSize: '20'
+          VolumeType: gp2
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          ## Install jq
+          yum install -y jq 
+          ## Install SSM Agent
+          cd /tmp
+          sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+          sudo systemctl enable amazon-ssm-agent
+          sudo systemctl start amazon-ssm-agent       
+          aws s3 cp s3://${PreReqS3Bucket}/pull-secret ~/install-dir/pull-secret.txt --region ${AWS::Region}
+          aws s3 cp s3://${PreReqS3Bucket}/entitlement.lic ~/install-dir/entitlement.lic --region ${AWS::Region}
+          
+          #Install git
+          sudo yum install -y git
+
+          ## Install ansible
+          wget https://bootstrap.pypa.io/get-pip.py
+          python3 get-pip.py
+          python3 -m pip install ansible junit_xml pymongo xmljson jmespath kubernetes==12.0.1 openshift==0.12.1
+          # Install ansible collection
+          ansible-galaxy collection install ibm.mas_devops
+          # Create Working folder and the MAS config folder
+          mkdir -p ~/install-dir/masconfig
+          ## Download openshift client and command line installer
+          wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OCPClusterVersion}/openshift-client-linux.tar.gz -P /root/install-dir/
+          tar -zxf /root/install-dir/openshift-client-linux.tar.gz -C /root/install-dir/
+          sudo mv /root/install-dir/oc /root/install-dir/kubectl /usr/local/bin/
+          oc version
+          # Download the openshift install program
+          wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OCPClusterVersion}/openshift-install-linux.tar.gz -P /root/install-dir/
+          tar -zxf /root/install-dir/openshift-install-linux.tar.gz -C /root/install-dir/
+
+          # Clone the ibm-mas-on-aws github repo
+          git clone https://github.com/aws-samples/ibm-mas-on-aws
+
+          # Install yq
+          pip3 install yq
+          # Signal the status from cfn-init
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource SeedEC2Instance --region ${AWS::Region}
+      Tags: 
+        - Key: 'Name'
+          Value: 'PrivateSeedEc2'
+    CreationPolicy:
+        ResourceSignal:
+          Count: 1
+          Timeout: "PT10M"
+# Seed Instance Security group. Allow SSH from anywhere
+  SeedSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+      - Description: "Allow traffic on Port 22 from the Bastion Security group"
+        IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        SourceSecurityGroupId: !GetAtt 'BastionSecurityGroup.GroupId'
+      SecurityGroupEgress:
+      - Description: "Allow traffic to Internet on Port 80"
+        IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - Description: "Allow traffic to Internet on Port 443"
+        IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      - Description: "Allow traffic to Internet on Port 6443"
+        IpProtocol: tcp
+        FromPort: 6443
+        ToPort: 6443
+        CidrIp: 0.0.0.0/0      
+      VpcId: !Ref VpcId
+
+# Bastion Instance Security group. Allow RDP from anywhere
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable RDP access via port 3389
+      SecurityGroupIngress:
+      - Description: "Allow traffic from RDPLocation as entered by user to Port 3389"
+        IpProtocol: tcp
+        FromPort: 3389
+        ToPort: 3389
+        CidrIp: !Ref 'RDPLocation'
+      SecurityGroupEgress:
+      - Description: "Allow traffic to Internet on Port 80"
+        IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - Description: "Allow traffic to Internet on Port 22"
+        IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - Description: "Allow traffic to Internet on Port 443"
+        IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      - Description: "Allow traffic to Internet on Port 6443"
+        IpProtocol: tcp
+        FromPort: 6443
+        ToPort: 6443
+        CidrIp: 0.0.0.0/0
+      - Description: "Allow traffic to Internet on Port 1433 - To allow RDS connection to RDS DB from Bastion"
+        IpProtocol: tcp
+        FromPort: 1433
+        ToPort: 1433
+        CidrIp: 0.0.0.0/0
+      VpcId: !Ref VpcId
+
+# IAM Role that will be used by Lambda
+  LambdaIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:*:*:document/*'
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ec2:*:*:instance/${SeedEC2Instance}'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${PreReqS3Bucket}'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${PreReqS3Bucket}/*' 
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: !Sub 'arn:${AWS::Partition}:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !Ref DeadLetterSNSTopic 
+# Install OCP Lambda Function
+  CreateInstallConfig:
+    Type: 'AWS::Lambda::Function'
+    DependsOn: SeedEC2Instance
+    Properties:
+      FunctionName: create-install-config
+      DeadLetterConfig: 
+        TargetArn: !Ref DeadLetterSNSTopic
+      ReservedConcurrentExecutions: 1
+      KmsKeyArn: !Ref KMSKey
+      Code:
+          ZipFile: |
+            import json
+            import boto3
+            import botocore
+            import time
+            import os
+            import logging
+            import cfnresponse
+
+            LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+            logger = logging.getLogger()
+            logger.setLevel(LOG_LEVEL)
+
+            def lambda_handler(event, context):
+                # s3 client
+                s3 = boto3.client("s3")
+                # get environment variables
+                bucket_name = os.environ['bucketName']
+                region = os.environ['AWS_REGION']
+                baseDomain = os.environ['baseDomain']
+                clusterSize = os.environ['clustersize']
+                clusterName = os.environ['clusterName']
+                vpcCIDR = os.environ['vpcCIDR']
+                subentID1 = os.environ['subentID1']
+                subentID2 = os.environ['subentID2']
+                subentID3 = os.environ['subentID3']
+                hostedZoneId = os.environ['hostedZoneId']
+                installconfig_template = "install-config-template.yaml"
+                installconfig = "install-config-wip.yaml"
+                # Download template install-config-template.yaml file
+                try:
+                    logger.info("Downloading install-config-template for OCP")
+                    s3.download_file(bucket_name, installconfig_template, '/tmp/'+installconfig_template)
+                except Exception as e:
+                    logger.error('Error while downloading files->'+str(e))
+                    cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
+                # Depending on the cluster size decide on number of control plane and worker nodes
+                if clusterSize == "small":
+                    controlPlaneReplica = '3'
+                    workerReplica = '3'
+                elif clusterSize == 'medium':
+                    controlPlaneReplica = '3'
+                    workerReplica = '5'
+                else:
+                    controlPlaneReplica = '5'
+                    workerReplica = '7'
+                    
+                # Read template install-config-template.yaml file
+                logger.info("Reading the install-config-template")
+                with open('/tmp/'+installconfig_template, 'r') as file :
+                    filedata = file.read()
+                
+                # Replace the target string
+                filedata = filedata.replace('<BASE_DOMAIN>', baseDomain)
+                filedata = filedata.replace('<REGION>', region)
+                filedata = filedata.replace('<CONTROLPLANEREPLICA>', controlPlaneReplica)
+                filedata = filedata.replace('<WORKERREPLICA>', workerReplica)
+                filedata = filedata.replace('<CLUSTERNAME>', clusterName)
+                filedata = filedata.replace('<VPCCIDR>', vpcCIDR)
+                filedata = filedata.replace('<PRIVATESUBNET1>', subentID1)
+                filedata = filedata.replace('<PRIVATESUBNET2>', subentID2)
+                filedata = filedata.replace('<PRIVATESUBNET3>', subentID3)
+                filedata = filedata.replace('<HOSTEDZONEID>', hostedZoneId)
+                
+                # Write file install-config-wip.yaml
+                # This file will be further updated on the Seed EC2 to enter the pull secret and ssh key
+                with open('/tmp/'+installconfig, 'w') as file:
+                    file.write(filedata)
+                # Upload config file install-config-wip.yaml to S3 bucket
+                try:
+                    response = s3.upload_file('/tmp/'+installconfig, bucket_name, installconfig)
+                except Exception as e:
+                    logger.error(e)
+                    cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
+                # Send success    
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, None)
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 600
+      VpcConfig:
+        SecurityGroupIds:
+          - !GetAtt SeedSecurityGroup.GroupId
+        SubnetIds:
+          - !Ref SeedSubnetId
+      Environment: 
+        Variables:
+          clusterName: !Ref OCPClusterName
+          clustersize: !Ref ClusterSize
+          vpcCIDR: !Ref VpcCIDR
+          subentID1: !Ref PrivateSubnet1
+          subentID2: !Ref PrivateSubnet2
+          subentID3: !Ref PrivateSubnet3
+          LOG_LEVEL: INFO
+          hostedZoneId: !Ref HostedZoneID
+          baseDomain: !Ref BaseDomain
+          bucketName: !Ref PreReqS3Bucket
+
+  # Custom resource to call OCP function
+  CallCreateInstallConfig:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt CreateInstallConfig.Arn
+  # Bastion Instance
+  BastionEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref 'InstanceType'
+      SecurityGroupIds: [!GetAtt 'BastionSecurityGroup.GroupId']
+      KeyName: !Ref 'KeyName'
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sda1"
+        Ebs:
+          Encrypted: 'true'
+          VolumeSize: '30'
+          VolumeType: gp2
+      ImageId: !Ref 'LatestBastionAmiId'
+      SubnetId: !Ref 'BastionSubnetId'
+      Tags: 
+        - Key: 'Name'
+          Value: 'BastionWindowsServer'
+  
+Outputs:
+  SeedInstanceId:
+    Description: InstanceId of the newly created Seed EC2 instance
+    Value: !Ref 'SeedEC2Instance'
+  BastionInstanceId:
+    Description: InstanceId of the newly created Bastion EC2 instance
+    Value: !Ref 'BastionEC2Instance'
+  AZ:
+    Description: Availability Zone of the newly created EC2 instance
+    Value: !GetAtt [SeedEC2Instance, AvailabilityZone]
+  PublicDNS:
+    Description: Public DNSName of the newly created EC2 instance
+    Value: !GetAtt [SeedEC2Instance, PublicDnsName]
+  BastionSecurityGroupId:
+    Description: Security GroupID of the newly created Bastion EC2 instance
+    Value: !GetAtt 'BastionSecurityGroup.GroupId'
+  SeedSecurityGroupId:
+    Description: Security GroupID of the newly created Private Seed EC2 instance
+    Value: !GetAtt SeedSecurityGroup.GroupId

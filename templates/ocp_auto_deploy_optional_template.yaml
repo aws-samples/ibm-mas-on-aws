@@ -1,0 +1,207 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+Metadata:
+  License: MIT-0
+Description: 'CFN Template to Auto Deploy OCP and deploy MAS Core and Maximo Manage'
+Parameters:
+  PreReqS3Bucket:
+    Type:  String
+    Description: S3 bucket name of the pre-requisite bucket. Naming convention masocp-license-{AWS.Region}-{AWS.AccountNumber}
+  PrivateHostedZone:
+    Description: Enter the DNS name for PHZ
+    Type: String
+    Default: example.com
+  OCPClusterName:
+    Type: String
+    Description: Name of the OCP Cluster that will be created
+  SeedInstanceId:
+    Type: String
+    Description: Instance ID for Private Seed EC2 instance
+  IBMEntitlementKey:
+    NoEcho: true
+    Type: String
+    Description: IBM Entitlement Key
+  UDSEMAIL:
+    Type: String
+    Description: User Data Services Email Address - Change for a production deployment
+    Default: first.last@example.com
+  UDSFIRSTNAME:
+    Type: String
+    Description: User Data Services First Name - Change for a production deployment
+    Default: First
+  UDSLASTNAME:
+    Type: String
+    Description: User Data Services Last Name - Change for a production deployment
+    Default: Last
+  SeedSubnetId:
+    Type: String
+    Description: Private SubnetId for the Private Seed EC2 Instance
+  SeedSecurityGroupId:
+    Description: Security Group Id for Private Seed EC2 Instance
+    Type: String
+  SLSLicenseID:
+    Description: SLS License ID from the entitlement.lic file
+    Type: String
+  KMSKey: 
+    Type: String
+    Description: KMS Key ARN to encrypt to RDS
+  DeadLetterSNSTopic: 
+    Type: String
+    Description: Dead Letter SNS Topic
+
+Resources:
+# IAM Role that will be used by Lambda
+  LambdaIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:*:*:document/*'
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ec2:*:*:instance/${SeedInstanceId}'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${PreReqS3Bucket}'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${PreReqS3Bucket}/*' 
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: !Sub 'arn:${AWS::Partition}:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !Ref DeadLetterSNSTopic
+              - Effect: Allow
+                Action: 
+                  - kms:Decrypt
+                Resource: 
+                  - !Ref KMSKey
+ 
+  IBMEntitlementKeySecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Description: 'IBM Entitlement Key stored as a secret'
+        SecretString: !Sub '{"ibmentitlementkey": "${IBMEntitlementKey}"}'
+        KmsKeyId: !Ref KMSKey
+        
+  # Install OCP Lambda Function
+  InstallOCPMAS:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: install-ocp-mascore
+      DeadLetterConfig: 
+        TargetArn: !Ref DeadLetterSNSTopic
+      ReservedConcurrentExecutions: 1
+      KmsKeyArn: !Ref KMSKey
+      Code:
+          ZipFile: |
+            import json
+            import boto3
+            import botocore
+            import time
+            import os
+            import logging
+            import cfnresponse
+            from botocore.exceptions import ClientError
+
+            LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+            logger = logging.getLogger()
+            logger.setLevel(LOG_LEVEL)
+
+            def lambda_handler(event, context):
+                client = boto3.client('ssm')
+                instance_id = os.environ['SeedInstanceId']
+                bucketname = os.environ['PreReqS3Bucket']
+                clustername = os.environ['OCPClusterName']
+                basedomain = os.environ['PrivateHostedZone']
+                slslicenseid = os.environ['SLSLicenseID']
+
+                email = os.environ['UDSEMAIL']
+                firstname = os.environ['UDSFIRSTNAME']
+                lastname = os.environ['UDSLASTNAME']
+                try:
+                    response = client.send_command(
+                        InstanceIds=[instance_id],
+
+                        DocumentName='AWS-RunShellScript',
+                        Parameters={
+                            'commands':[
+                                'sudo su -',
+                                '/root/ibm-mas-on-aws/scripts/runOCPMASManageInstall.sh "{0}" "{1}" "{2}" "{3}" "{4}" "{5}" "{6}" "{7}"'.format(bucketname,clustername,basedomain,os.environ['IBMEntitlementKeySecretArn'],email,firstname,lastname,slslicenseid)
+                            ],
+                            'executionTimeout': [
+                                '36000'
+                            ],
+                            'workingDirectory': [
+                                '/root'
+                            ]
+                        }
+                    )
+                except Exception as e:
+                    logger.error("Error sending command to Ec2 Instance"+str(e))
+                    cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
+                # Send success    
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, None)
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 600
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SeedSecurityGroupId
+        SubnetIds:
+          - !Ref SeedSubnetId
+      Environment: 
+        Variables:
+          SeedInstanceId: !Ref SeedInstanceId
+          PreReqS3Bucket: !Ref PreReqS3Bucket
+          OCPClusterName: !Ref OCPClusterName
+          PrivateHostedZone: !Ref PrivateHostedZone
+          IBMEntitlementKeySecretArn: !Ref IBMEntitlementKeySecret
+          UDSEMAIL: !Ref UDSEMAIL
+          LOG_LEVEL: INFO
+          UDSFIRSTNAME: !Ref UDSFIRSTNAME
+          UDSLASTNAME: !Ref UDSLASTNAME
+          SLSLicenseID: !Ref SLSLicenseID
+          
+# Custom resource to call OCP function
+  CallInstallOCPMASCR:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt InstallOCPMAS.Arn
+
