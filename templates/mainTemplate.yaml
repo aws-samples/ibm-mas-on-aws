@@ -455,6 +455,6 @@ Outputs:
   10GenMASJDBCCommand:
     Description: Command to generate MAS JDBC config. If deploying RDS SQL using CFN stack, then get the JDBC Connection String from RDS Stack output
     Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/gen_mas_jdbc.sh "MAS_JDBC_USER" "MAS_JDBC_PASSWORD" "',!GetAtt RDSStack.Outputs.JDBCConnectionString, '" "S3URI_CERTPEM_FILE"', '' ]]
-  10GenMASJDBCCommand:
+  11AddMaximoManageCommand:
     Description: Command to deploy Maximo Manage on MAS. 
     Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/add_maximo_manage.sh "IBM_ENTITLEMENT_KEY"' , '' ]]

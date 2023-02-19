@@ -20,11 +20,11 @@ export MAS_WORKSPACE_ID=masdev
 export MAS_JDBC_USER=$1
 export MAS_JDBC_PASSWORD=$2
 export MAS_JDBC_URL=$3
-export MAS_JDBC_CERT_LOCAL_FILE=/root/install-dir/db_cert.pem
+export MAS_JDBC_CERT_LOCAL_FILE="/root/install-dir/db_cert.pem"
 export MAS_CONFIG_SCOPE=wsapp
 export MAS_APP_ID=manage
-export MAS_CONFIG_DIR=/root/install-dir/masconfig
-export SSL_ENABLED=true
+export MAS_CONFIG_DIR="/root/install-dir/masconfig"
+export SSL_ENABLED=True
 
 echo `date "+%Y/%m/%d %H:%M:%S"` "Installing the MAS Operator on the OCP Cluster"
 # Configure JDBC URL

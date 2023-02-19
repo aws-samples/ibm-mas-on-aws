@@ -151,7 +151,7 @@ Resources:
           tar -zxf /root/install-dir/openshift-install-linux.tar.gz -C /root/install-dir/
 
           # Clone the ibm-mas-on-aws github repo
-          git clone https://github.com/aws-samples/ibm-mas-on-aws
+          git clone https://github.com/aws-samples/ibm-mas-on-aws /root/ibm-mas-on-aws
 
           # Install yq
           pip3 install yq
