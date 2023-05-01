@@ -3,8 +3,8 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
-if [[ $# -ne 5 ]]; then
-    echo "Usage: $0 IBM_ENTITLEMENT_KEY UDS_CONTACT_EMAIL UDS_CONTACT_FIRSTNAME UDS_CONTACT_LASTNAME SLS_LICENSE_ID"
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 IBM_ENTITLEMENT_KEY"
     exit
 fi
 
@@ -12,12 +12,17 @@ export IBM_ENTITLEMENT_KEY=$1
 export MAS_INSTANCE_ID=masinst1
 export MAS_CONFIG_DIR=/root/install-dir/masconfig
 
-export SLS_LICENSE_ID=$5
 export SLS_LICENSE_FILE=/root/install-dir/entitlement.lic
+export SLS_LICENSE_ID=`head -1 $SLS_LICENSE_FILE| cut -d" " -f2`
+[ -z "$SLS_LICENSE_ID" ] && echo "Could not fetch SLS License ID. Check the entitlement.lic file" && exit 1
 
-export UDS_CONTACT_EMAIL=$2
-export UDS_CONTACT_FIRSTNAME=$3
-export UDS_CONTACT_LASTNAME=$4
+export PULL_SECRET_FILE=/root/install-dir/pull-secret.txt
+[ ! -f "/root/install-dir/pull-secret.txt" ] && echo "pull-secret file not found. Ensure file is present in the pre-requisite s3 bucket" && exit 1
+
+export UDS_CONTACT_EMAIL=`cat $PULL_SECRET_FILE| jq -r '.[]|."cloud.openshift.com"."email"'`
+[ -z "$UDS_CONTACT_EMAIL" ] && echo "Could not fetch email ID from pull secret. Check if pull secret is valid" && exit 1
+export UDS_CONTACT_FIRSTNAME=$UDS_CONTACT_EMAIL
+export UDS_CONTACT_LASTNAME=$UDS_CONTACT_EMAIL
 
 export PROMETHEUS_ALERTMGR_STORAGE_CLASS="efs"
 export PROMETHEUS_STORAGE_CLASS="gp2"
@@ -28,12 +33,6 @@ export UDS_STORAGE_CLASS="gp2"
 
 echo `date "+%Y/%m/%d %H:%M:%S"` "Installing the MAS Operator on the OCP Cluster"
 # Install the MAS Operator
-
-# Below lines are added to add the kubeconfig parameter to the end of the oc adm policy add-scc-to-user. Else it errors when running the oneclick_core playbook via Systems Manager Run Command
-#echo `date "+%Y/%m/%d %H:%M:%S"` "Altering mongodb community.yml to include kubeconfig"
-#cp /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/mongodb/tasks/providers/community.yml /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/mongodb/tasks/providers/community.yml.bkup
-#sed '/oc adm policy add-scc-to-user/ s/$/ --kubeconfig \/root\/install-dir\/auth\/kubeconfig/' /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/mongodb/tasks/providers/community.yml > /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/mongodb/tasks/providers/community.yml
-
 ansible-playbook ibm.mas_devops.oneclick_core
 
 # Create a secret with the MAS Admin console secrets

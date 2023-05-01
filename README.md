@@ -1,5 +1,5 @@
 # Installing Maximo Application Suite 8.x on a private OpenShift Container Platform cluster
-This repository is part of an AWS Workshop, "IBM Maximo Application Suite 8.x on AWS". For detailed instructions please follow the workshop.
+This repository is part of an AWS Workshop, [IBM Maximo Application Suite 8.x on AWS](https://catalog.us-east-1.prod.workshops.aws/workshops/78554b88-0cd8-45a1-b9ee-2c1078aa6995/en-US). For detailed instructions please follow the workshop.
 ## Note
 IBM Maximo is a commercial off the shelf (COTS) licensed software. You will need the below prior to proceeding with the installation.
 * An IBM Container registry key, aka. IBM Entitlement **key** that allows you access to download necessary container images for the installation.
@@ -71,7 +71,7 @@ The Alert Manager requires an RWX (Read Write Many) storage class. Follow the co
 
 ### Deploying the Maximo Application Suite on OpenShift Cluster
 ```
-./ibm-mas-on-aws/scripts/deploy_mascore.sh "{IBM_ENTITLEMENT_KEY}" "{UDS_CONTACT_EMAIL}" "{UDS_CONTACT_FIRSTNAME}" "{UDS_CONTACT_LASTNAME}" "{SLS_LICENSE_ID}" 
+./ibm-mas-on-aws/scripts/deploy_mascore.sh "IBM_ENTITLEMENT_KEY" 
 ```
 |Parameter|Description|
 |--|--|
@@ -105,6 +105,10 @@ Follow the next steps in the AWS workshop to configure Maximo Manage.
 
 ## Cleanup
 In order to cleanup, we will first remove the EFS filesystem that was created and then destroy the OpenShift cluster.
+
+### Remove Deletion protection from RDS Instance
+Access the RDS console and select the RDS instance created by the CFN Template. Click on ``Modify`` and uncheck the checkbox ``Enable Deletion Protection`` and then click on ``Apply immediately``.
+
 ### Removing the EFS Filesystem
 ```
 ./ibm-mas-on-aws/scripts/delete_rwx_efs.sh CLUSTER_NAME

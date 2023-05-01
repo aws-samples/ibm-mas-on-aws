@@ -53,15 +53,9 @@ Parameters:
     AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
     ConstraintDescription: must begin with a letter and contain only alphanumeric
       characters.
-  RDSMasterUserPassword:
-    NoEcho: true
-    Description: Password to be used for the database admin account
+  MSSQLSecret:
+    Description: Secret that stores the generated MSSQL password
     Type: String
-    MinLength: 8
-    MaxLength: 41
-    AllowedPattern: '[a-zA-Z0-9!^*\-_+]*'
-    ConstraintDescription: Can only contain alphanumeric characters or the following
-      special characters !^*-_+ Min length 8, max length 41
   StorageType:
     Default: gp2
     Type: String
@@ -151,35 +145,6 @@ Resources:
         ToPort: 65535
         CidrIp: 0.0.0.0/0
       VpcId: !Ref VpcId
-# Best Practice - Use KMS key to encrypt RDS
-#  RDSKMSKeyAlias:
-#    Type: AWS::KMS::Alias
-#    Properties:
-#      AliasName: alias/RDSKMSKey
-#      TargetKeyId:
-#        Ref: RDSKMSKey
-
-#  RDSKMSKey:
-#    Type: AWS::KMS::Key
-#    Properties:
-#      Description: KMS Key to encrypt RDS DB
-#      EnableKeyRotation: true    
-#      KeyPolicy:
-#        Version: 2012-10-17
-#        Id: rds-key-poicy
-#        Statement:
-#          - Sid: Enable IAM User Permissions
-#            Effect: Allow
-#            Principal:
-#              AWS: !Join
-#                - ''
-#                - - 'arn:'
-#                  - !Ref 'AWS::Partition'
-#                  - ':iam::'
-#                  - !Ref 'AWS::AccountId'
-#                  - ':root'
-#            Action: 'kms:*'
-#            Resource: '*'
 
 # IAM Role that will be used by RDS Enhanced Monitoring
   EMIAMRole:
@@ -210,7 +175,7 @@ Resources:
       Engine: sqlserver-se
       EngineVersion: 15.00.4236.7.v1
       MasterUsername: !Ref RDSMasterUsername
-      MasterUserPassword: !Ref RDSMasterUserPassword
+      MasterUserPassword: !Join [ '', [ '{{resolve:secretsmanager:', !Ref MSSQLSecret, ':SecretString:password}}' ] ]
       VPCSecurityGroups:
       - !Ref RDSSecurityGroup
       MultiAZ: !Ref MultiAZ

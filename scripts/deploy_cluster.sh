@@ -24,12 +24,13 @@ export AWS_DEFAULT_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
 echo `date "+%Y/%m/%d %H:%M:%S"` "Sleeping for 10 seconds before downloading the install-config-wip.yaml file"
 aws s3 cp s3://${BUCKETNAME}/install-config-wip.yaml /root/install-dir/install-config-wip.yaml --region ${AWS_DEFAULT_REGION}
 
-if [[ ! -f /root/install-dir/install-config-wip.yaml ]]; then
-        echo "Could not download install-config-wip.yaml from s3 bucket."
-        exit 1
-else
-        echo "install-config-wip.yaml downloaded"
-fi
+# Download entitlement.lic and pull-secret from S3
+aws s3 cp s3://${BUCKETNAME}/pull-secret /root/install-dir/pull-secret.txt --region ${AWS_DEFAULT_REGION}
+aws s3 cp s3://${BUCKETNAME}/entitlement.lic /root/install-dir/entitlement.lic --region ${AWS_DEFAULT_REGION}
+
+[ ! -f "/root/install-dir/pull-secret.txt" ] && echo "pull-secret file not found. Ensure file is present in the pre-requisite s3 bucket" && exit 1
+[ ! -f "/root/install-dir/entitlement.lic" ] && echo "entitlement.lic file not found. Ensure file is present in the pre-requisite s3 bucket" && exit 1
+[ ! -f "/root/install-dir/install-config-wip.yaml" ] && echo "install-config-wip.yaml file not found. Ensure file is present in the pre-requisite s3 bucket" && exit 1
 
 export PULLSECRET=`cat /root/install-dir/pull-secret.txt`
 
@@ -38,12 +39,6 @@ export PULLSECRET=`cat /root/install-dir/pull-secret.txt`
 TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 export SSHPUBLICKEY=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key)
 
-## Create an SSH key. The public key will be placed in cluster nodes to allow ssh into the cluster nodes:
-## ssh core@workerip
-#echo -e y | ssh-keygen -q -t rsa -N "" -f /root/.ssh/id_rsa
-#eval "$(ssh-agent -s)"
-#ssh-add /root/.ssh/id_rsa
-#export SSHPUBLICKEY=`cat /root/.ssh/id_rsa.pub`
 
 ## Substitute SSHPUBLICKEY and PULLSECRET
 envsubst < /root/install-dir/install-config-wip.yaml > /root/install-dir/install-config.yaml

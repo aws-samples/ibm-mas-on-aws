@@ -63,11 +63,6 @@ Parameters:
   LatestBastionAmiId:
     Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base'
-  RDPLocation:
-    Type: String
-    Description: 'Allow RDP from this CIDR. Carefully define this CIDR to allow RDP from the CIDR range'
-    AllowedPattern : ".+"
-    #  Default: '0.0.0.0/0'
   
   KMSKey: 
     Type: String
@@ -97,7 +92,6 @@ Resources:
   SeedInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties: 
-      InstanceProfileName: 'SeedSeedEC2InstanceProf'
       Path: "/"
       Roles: 
         - !Ref SeedInstanceRole
@@ -127,8 +121,8 @@ Resources:
           sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
           sudo systemctl enable amazon-ssm-agent
           sudo systemctl start amazon-ssm-agent       
-          aws s3 cp s3://${PreReqS3Bucket}/pull-secret ~/install-dir/pull-secret.txt --region ${AWS::Region}
-          aws s3 cp s3://${PreReqS3Bucket}/entitlement.lic ~/install-dir/entitlement.lic --region ${AWS::Region}
+          #aws s3 cp s3://${PreReqS3Bucket}/pull-secret ~/install-dir/pull-secret.txt --region ${AWS::Region}
+          #aws s3 cp s3://${PreReqS3Bucket}/entitlement.lic ~/install-dir/entitlement.lic --region ${AWS::Region}
           
           #Install git
           sudo yum install -y git
@@ -198,12 +192,12 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Enable RDP access via port 3389
-      SecurityGroupIngress:
-      - Description: "Allow traffic from RDPLocation as entered by user to Port 3389"
-        IpProtocol: tcp
-        FromPort: 3389
-        ToPort: 3389
-        CidrIp: !Ref 'RDPLocation'
+      #SecurityGroupIngress:
+      #- Description: "Allow traffic from RDPLocation as entered by user to Port 3389"
+      #  IpProtocol: tcp
+      #  FromPort: 3389
+      #  ToPort: 3389
+      #  CidrIp: !Ref 'RDPLocation'
       SecurityGroupEgress:
       - Description: "Allow traffic to Internet on Port 80"
         IpProtocol: tcp
@@ -305,17 +299,56 @@ Resources:
             import os
             import logging
             import cfnresponse
+            import urllib.request
 
             LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
             logger = logging.getLogger()
             logger.setLevel(LOG_LEVEL)
+            def exit_status(event, context, status):
+                logger.info(f"exit_status({status})")
+                if ('ResourceType' in event):
+                    if (event['ResourceType'].find('CustomResource') > 0):
+                        logger.info("cfnresponse:" + status)
+                        if ('PhysicalResourceId' in event):
+                            resid=event['PhysicalResourceId']
+                            cfnresponse.send(event, context, status, {}, resid)
+                        else:
+                          cfnresponse.send(event, context, status, {}, None)
+                return status
+
+            def empty_bucket(masocpBucket,event, context):
+                if masocpBucket:
+                    try:
+                        s3 = boto3.resource('s3')
+                        bucket = s3.Bucket(masocpBucket)
+                        bucket.objects.all().delete()
+                    except Exception as e:
+                        logger.info("Exception while deleting files ->"+str(e))
+                        return exit_status(event, context, cfnresponse.FAILED)
+
 
             def lambda_handler(event, context):
+                bucket_name = os.environ['bucketName']
+                region = os.environ['AWS_REGION']            
+                #if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
+                #    logger.info("Cfn Delete event - no action - return Success")
+                #    return exit_status(event, context, cfnresponse.SUCCESS)
+                if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
+                    # Empty Bucket before delete
+                    empty_bucket(bucket_name, event, context)
+                    logger.info("Cfn Delete event - no action - return Success")
+                    return exit_status(event, context, cfnresponse.SUCCESS)
+
                 # s3 client
                 s3 = boto3.client("s3")
                 # get environment variables
                 bucket_name = os.environ['bucketName']
                 region = os.environ['AWS_REGION']
+                if 'gov' in region:
+                    templateURL='https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/govcloud/install-config-template.yaml'
+                else:
+                    templateURL='https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/install-config-template.yaml'
+
                 baseDomain = os.environ['baseDomain']
                 clusterSize = os.environ['clustersize']
                 clusterName = os.environ['clusterName']
@@ -328,11 +361,15 @@ Resources:
                 installconfig = "install-config-wip.yaml"
                 # Download template install-config-template.yaml file
                 try:
-                    logger.info("Downloading install-config-template for OCP")
-                    s3.download_file(bucket_name, installconfig_template, '/tmp/'+installconfig_template)
+                    logger.info("Downloading install-config-template for OCP from " + templateURL)
+                    #s3.download_file(bucket_name, installconfig_template, '/tmp/'+installconfig_template)
+                    response = urllib.request.urlopen(templateURL)
+                    with open('/tmp/'+installconfig_template, 'b+w') as f:
+                        f.write(response.read())
+
                 except Exception as e:
                     logger.error('Error while downloading files->'+str(e))
-                    cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
+                    return exit_status(event, context, cfnresponse.FAILED)
                 # Depending on the cluster size decide on number of control plane and worker nodes
                 if clusterSize == "small":
                     controlPlaneReplica = '3'
@@ -370,9 +407,9 @@ Resources:
                     response = s3.upload_file('/tmp/'+installconfig, bucket_name, installconfig)
                 except Exception as e:
                     logger.error(e)
-                    cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
+                    return exit_status(event, context, cfnresponse.FAILED)
                 # Send success    
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, None)
+                return exit_status(event, context, cfnresponse.SUCCESS)  
       Handler: index.lambda_handler
       Role: !GetAtt LambdaIAMRole.Arn
       Runtime: python3.9

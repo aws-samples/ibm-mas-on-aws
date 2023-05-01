@@ -29,13 +29,10 @@ Metadata:
               default: Parameters to create a Seed and Bastion Host required to start installation 
             Parameters:
                 - 04DeploySeedBastion
-                - 04RDPLocation
                 - 05SeedInstanceType
-                - 05PreReqS3Bucket
                 - 05OCPClusterName
                 - 05OCPClusterVersion
                 - 05ClusterSize
-                - 07SLSLicenseID
           - Label:
               default: Define an RDS SQL Server instance if you would like SQL 
             Parameters:
@@ -45,13 +42,7 @@ Metadata:
                 - 06RDSDBInstanceIdentifier
                 - 06RDSBackupRetentionPeriod
                 - 06RDSMasterUsername
-                - 06RDSMasterUserPassword
                 - 06MultiAZ
-#          - Label:
-#              default: Auto deploy OCP cluster in the created VPC. Defaulted to false. 
-#            Parameters:
-#                - 07AutoDeployMASCore
-#                - 07IBMEntitlementKey
 
 
 Description: 'CFN Template to create a Seed EC2 instance with ansible collection installed'
@@ -59,7 +50,6 @@ Conditions:
   IsDeployPHZ: !Equals [!Ref 02DeployPHZ, 'true']
   IsDeploySeedBastion: !Equals [!Ref 04DeploySeedBastion, 'true']
   IsDeployRDS: !Equals [!Ref 06DeployRDS, 'true']
-#  IsAutoDeployMASCore:  !Equals [!Ref 07AutoDeployMASCore, 'true']
 
 Parameters:
   01VpcCIDR:
@@ -112,21 +102,11 @@ Parameters:
     AllowedValues:
       - 'true'
       - 'false'
-  04RDPLocation:
-    Type: String
-    AllowedPattern : '^([0-9]{1,3}\.){3}[0-9]{1,3}(\/([0-9]|[1-2][0-9]|3[0-2]))$'
-    Description: 'Allow RDP from this CIDR. Carefully define this CIDR to allow RDP from the CIDR range'
-    ConstraintDescription: Enter the CIDR to allow RDP connection to the BastionHost
   05SeedInstanceType:
     Description: Seed EC2 instance type
     Type: String
     Default: t2.large
     ConstraintDescription: must be a valid EC2 instance type.
-  05PreReqS3Bucket:
-    Type:  String
-    AllowedPattern : '.+'
-    Description: S3 bucket name of the pre-requisite bucket. Naming convention masocp-license-{AWS.Region}-{AWS.AccountNumber}
-    ConstraintDescription: Enter the S3 Bucket where the Pre-requisite files are stored
   05OCPClusterName:
     Type: String
     Description: Name of the OCP Cluster that will be created
@@ -199,14 +179,6 @@ Parameters:
     AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
     ConstraintDescription: must begin with a letter and contain only alphanumeric
       characters.
-  06RDSMasterUserPassword:
-    NoEcho: true
-    Description: Password to be used for the database admin account. Min Length=8 and Max Length 41
-    Type: String
-    MinLength: 8
-    MaxLength: 41
-    AllowedPattern: '[a-zA-Z0-9!^*\-_+]*'
-    ConstraintDescription: Can only contain alphanumeric characters or the following special characters !^*-_+ Min length 8, max length 41
   06MultiAZ:
     Description: Use Multi-AZ or SQL Mirroring Option Group for RDS Instance
     Type: String
@@ -215,26 +187,13 @@ Parameters:
     - 'true'
     - 'false'
 
-#  07AutoDeployMASCore:
-#    Description: Do you want to auto create the OCP cluster and deploy MAS Core and MAS Manage ? Note with this option, creation of the database configuration and configuring the Maximo Manage is a manual step 
-#    Type: String
-#    Default: 'false'
-#    AllowedValues:
-#      - 'true'
-#      - 'false'
-#  07IBMEntitlementKey:
-#    NoEcho: true
-#    Description: IBM Container Registry key to access IBM software
-#    Type: String
-
-  07SLSLicenseID:
-    Description: SLS License ID from the entitlement.lic file
-    Type: String
-    AllowedPattern : '.+'
-    ConstraintDescription: Enter the SLS License ID from the license key file
-
-
 Resources:
+  05PreReqS3Bucket:
+    Type: AWS::S3::Bucket
+    Description: S3 bucket name of the pre-requisite bucket. Naming convention masocp-license-{AWS.Region}-{AWS.AccountNumber}
+    Properties:
+      BucketName: !Sub masocp-license-${AWS::Region}-${AWS::AccountId}-${AWS::StackName}
+
   MASOCPKeyPair:
     Type: 'AWS::EC2::KeyPair'
     Properties:
@@ -265,12 +224,23 @@ Resources:
     Type: AWS::SNS::Topic
     Properties: 
       KmsMasterKeyId: !Ref KMSKey
-       
+
+  MSSQLSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      KmsKeyId: !Ref KMSKey
+      GenerateSecretString:
+        SecretStringTemplate: !Join [ '', [ '{"username": "', !Ref 06RDSMasterUsername, '"}' ] ]
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+
+
   ## Stack to create the VPC resources required for an OCP Cluster   
   ExistingVPCStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_existing_vpc_setup.yaml
+      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/3a329393b93e4f5cb7474c239ac61eb1/v1/ocp_existing_vpc_setup.yaml
       Parameters:
         VpcCIDR:  !Ref 01VpcCIDR
         PublicSubnet1CIDR: !Ref 01PublicSubnet1CIDR
@@ -286,7 +256,7 @@ Resources:
     Condition: IsDeployPHZ
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_phz_create.yaml
+      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/3a329393b93e4f5cb7474c239ac61eb1/v1/ocp_phz_create.yaml
       Parameters:
         PrivateHostedZone:  !Ref 03PrivateHostedZone
         openshiftVPCId:
@@ -299,14 +269,14 @@ Resources:
     Condition: IsDeployRDS
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_rds_optional_template.yaml
+      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/3a329393b93e4f5cb7474c239ac61eb1/v1/ocp_rds_optional_template.yaml
       Parameters:
         RDSDBInstanceClass:  !Ref 06RDSDBInstanceClass
         RDSAllocatedStorage: !Ref 06RDSAllocatedStorage
         RDSDBInstanceIdentifier: !Ref 06RDSDBInstanceIdentifier
         RDSBackupRetentionPeriod: !Ref 06RDSBackupRetentionPeriod
         RDSMasterUsername:  !Ref 06RDSMasterUsername
-        RDSMasterUserPassword: !Ref 06RDSMasterUserPassword
+        MSSQLSecret: !Ref MSSQLSecret
         RDSPrivateSubnetId1: 
                   Fn::GetAtt:
                   - ExistingVPCStack
@@ -341,7 +311,7 @@ Resources:
     Condition: IsDeploySeedBastion
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_seed_bastion_instance.yaml
+      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/3a329393b93e4f5cb7474c239ac61eb1/v1/ocp_seed_bastion_instance.yaml
       Parameters:
         KeyName:  !Ref MASOCPKeyPair
         InstanceType: !Ref 05SeedInstanceType
@@ -379,32 +349,8 @@ Resources:
                   - PHZStack
                   - Outputs.PHZId
         BaseDomain: !Ref 03PrivateHostedZone
-        RDPLocation:  !Ref 04RDPLocation
         KMSKey: !GetAtt KMSKey.Arn
         DeadLetterSNSTopic: !Ref DeadLetterSNSTopic
-
-#  AutoDeployStack:
-#    Condition: IsAutoDeployMASCore
-#    Type: AWS::CloudFormation::Stack
-#    Properties:
-#      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_auto_deploy_optional_template.yaml
-#      Parameters:
-#        PreReqS3Bucket: !Ref 05PreReqS3Bucket
-#        PrivateHostedZone:  !Ref 03PrivateHostedZone
-#        OCPClusterName: !Ref 05OCPClusterName
-#        SeedInstanceId: !GetAtt SeedBastionStack.Outputs.SeedInstanceId
-#        IBMEntitlementKey: !Ref 07IBMEntitlementKey
-#        SLSLicenseID: !Ref 07SLSLicenseID
-#        SeedSubnetId:
-#                  Fn::GetAtt:
-#                  - ExistingVPCStack
-#                  - Outputs.outputPrivateSubnetSeedInstance
-#        SeedSecurityGroupId: 
-#                  Fn::GetAtt:
-#                  - SeedBastionStack
-#                  - Outputs.SeedSecurityGroupId
-#        KMSKey: !GetAtt KMSKey.Arn
-#        DeadLetterSNSTopic: !Ref DeadLetterSNSTopic
 
 Outputs:
   01outputVPC:
@@ -451,7 +397,7 @@ Outputs:
     Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/pending_oc_updates.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !Ref 03PrivateHostedZone, '"' ]]
   09DeployMASOperatorCommand:
     Description: Command to Deploy the MAS Operator on OpenShift Cluster
-    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_mascore.sh "IBM_ENTITLEMENT_KEY" "UDS_CONTACT_EMAIL" "UDS_CONTACT_FIRSTNAME" "UDS_CONTACT_LASTNAME" "', !Ref 07SLSLicenseID, '"' ]]
+    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_mascore.sh "IBM_ENTITLEMENT_KEY"', '' ]]
   10GenMASJDBCCommand:
     Description: Command to generate MAS JDBC config. If deploying RDS SQL using CFN stack, then get the JDBC Connection String from RDS Stack output
     Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/gen_mas_jdbc.sh "MAS_JDBC_USER" "MAS_JDBC_PASSWORD" "',!GetAtt RDSStack.Outputs.JDBCConnectionString, '" "S3URI_CERTPEM_FILE"', '' ]]
