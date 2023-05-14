@@ -185,6 +185,11 @@ Resources:
         FromPort: 6443
         ToPort: 6443
         CidrIp: 0.0.0.0/0      
+      - Description: "Allow traffic to Internet on Port 22"
+        IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
       VpcId: !Ref VpcId
 
 # Bastion Instance Security group. Allow RDP from anywhere

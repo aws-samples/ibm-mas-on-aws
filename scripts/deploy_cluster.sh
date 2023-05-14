@@ -39,22 +39,24 @@ export PULLSECRET=`cat /root/install-dir/pull-secret.txt`
 TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 export SSHPUBLICKEY=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key)
 
+## Create an SSH key. The public key will be placed in cluster nodes to allow ssh into the cluster nodes:
+## ssh core@workerip
+#echo -e y | ssh-keygen -q -t rsa -N "" -f /root/.ssh/id_rsa
+#eval "$(ssh-agent -s)"
+#ssh-add /root/.ssh/id_rsa
+#export SSHPUBLICKEY=`cat /root/.ssh/id_rsa.pub`
 
 ## Substitute SSHPUBLICKEY and PULLSECRET
 envsubst < /root/install-dir/install-config-wip.yaml > /root/install-dir/install-config.yaml
-
-export IAMUSER=ocp_install_seed_$RANDOM
+rand=$RANDOM
+export IAMUSER=ocp_install_seed_$rand
+export POLICYNAME=ocp_install_seed_policy_$rand
 echo $IAMUSER
-# Fetch Policy ARN. Necessary to fetch the Policy ARN
-export POLICYARN=`aws iam list-policies --query "Policies[?PolicyName=='AdministratorAccess'].Arn" --output text`
-if [[ $POLICYARN == *"AdministratorAccess"* ]]; then
-        echo `date "+%Y/%m/%d %H:%M:%S"` "Attaching policy ........ " $POLICYARN
-else
-        echo `date "+%Y/%m/%d %H:%M:%S"` "Could not fetch Policy ARN"
-        exit 1
-fi
-
+# Create an IAM user as per https://docs.openshift.com/container-platform/4.10/installing/installing_aws/installing-aws-account.html#installation-aws-permissions_installing-aws-account
 aws iam create-user --user-name ${IAMUSER}
+policy_output=`aws iam create-policy --policy-name $POLICYNAME --policy-document file:///root/ibm-mas-on-aws/policies/efs-policy.json`
+POLICYARN=`echo $policy_output | jq -r '.[].Arn'`
+echo "Policy ARN:" $POLICYARN
 aws iam attach-user-policy --policy-arn ${POLICYARN} --user-name ${IAMUSER}
 json=`aws iam create-access-key --user-name $IAMUSER`
 export AWS_ACCESS_KEY_ID=`echo $json | jq -r '.AccessKey.AccessKeyId'`
@@ -65,7 +67,6 @@ export DEFAULT_OUTPUT=json
 echo `date "+%Y/%m/%d %H:%M:%S"` "Generated AWS Access Keys"
 echo $AWS_ACCESS_KEY_ID
 echo $AWS_SECRET_ACCESS_KEY
-
 mkdir -p /root/.aws
 cat  > /root/.aws/config<<EOFCONFIG
 [default]
@@ -111,17 +112,3 @@ else
         echo `date "+%Y/%m/%d %H:%M:%S"` "Could not find /root/install-dir/metadata.json file"
         exit 1
 fi
-
-echo `date "+%Y/%m/%d %H:%M:%S"`  "Sleeping for 5 seconds before deleting IAM user"
-sleep 5
-
-# Delete Access credentials
-echo `date "+%Y/%m/%d %H:%M:%S"` "Deleting IAM user .......... " ${IAMUSER}
-aws iam delete-access-key --access-key-id ${OCP_USER_KEY} --user-name ${IAMUSER}
-aws iam detach-user-policy --user-name $IAMUSER --policy-arn ${POLICYARN}
-aws iam delete-user --user-name ${IAMUSER}
-
-# Remove the .aws folder and use EC2 instance profile
-rm -rf /root/.aws
-unset AWS_ACCESS_KEY_ID
-unset AWS_SECRET_ACCESS_KEY
