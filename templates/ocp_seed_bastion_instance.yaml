@@ -147,9 +147,6 @@ Resources:
           # Clone the ibm-mas-on-aws github repo
           git clone https://github.com/aws-samples/ibm-mas-on-aws /root/ibm-mas-on-aws
 
-          # Update Session Manager preferences (command line)
-          aws ssm update-document --name "SSM-SessionManagerRunShell" --content "file:///root/ibm-mas-on-aws/config/SessionManagerRunShell.json" --document-version "\$LATEST" --region ${AWS::Region}
-
           # Install yq
           pip3 install yq
           # Signal the status from cfn-init

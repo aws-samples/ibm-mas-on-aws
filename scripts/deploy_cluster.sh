@@ -21,6 +21,9 @@ export BASEDOMAIN=$3
 EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
 export AWS_DEFAULT_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
 
+# Update Session Manager preferences (command line)
+aws ssm update-document --name "SSM-SessionManagerRunShell" --content "file:///root/ibm-mas-on-aws/config/SessionManagerRunShell.json" --document-version "\$LATEST" --region ${AWS_DEFAULT_REGION}
+
 echo `date "+%Y/%m/%d %H:%M:%S"` "Sleeping for 10 seconds before downloading the install-config-wip.yaml file"
 aws s3 cp s3://${BUCKETNAME}/install-config-wip.yaml /root/install-dir/install-config-wip.yaml --region ${AWS_DEFAULT_REGION}
 
