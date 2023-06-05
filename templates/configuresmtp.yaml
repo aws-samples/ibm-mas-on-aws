@@ -1,0 +1,260 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  EmailId:
+    Description: Enter the Email ID that will be used as a Verified Identity
+    Type: String
+    AllowedPattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    ConstraintDescription: Please enter a valid email address.
+
+Resources:
+  # Email Identity
+  EmailIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref EmailId
+  # Create a new IAM user to send Emails
+  SMTPUser:
+    Type: AWS::IAM::User
+  # Create a new AccessKey for User
+  SMTPUserAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref SMTPUser
+  # Create a SMTP User Access Key secret
+  SMTPIAMUserAccessKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub SMTPIAMUserAccessKey-${AWS::StackName}
+      SecretString: !Sub '{"smtpiamaccesskey": "${SMTPUserAccessKey}", "smtpiamsecretaccesskey": "${SMTPUserAccessKey.SecretAccessKey}"}'
+  
+  # IAM Group
+  SMTPIAMGroup:
+    Type: AWS::IAM::Group
+
+  # IAM policy to allow email sends  
+  SESPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub smtp-iam-policy-${AWS::StackName}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Action: ses:SendRawEmail
+          Resource: "*"
+      Groups:
+        - !Ref SMTPIAMGroup
+
+  SMTPUserGroupMembership:
+    Type: AWS::IAM::UserToGroupAddition
+    Properties:
+      GroupName: !Ref SMTPIAMGroup
+      Users:
+        - !Ref SMTPUser
+  
+  # Custom resource to call create an SMTP Credential function
+  CreateSMTPCredetial:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      DeadLetterConfig: 
+        TargetArn: !ImportValue 'LambdaDeadLetterSNSTopic'
+      ReservedConcurrentExecutions: 1
+      KmsKeyArn: !ImportValue 'LambdaKMSKey'
+      Code:
+          ZipFile: |
+            import hmac
+            import hashlib
+            import base64
+            import argparse
+            import json
+            import os
+            import logging
+            import boto3
+            import cfnresponse
+            from botocore.exceptions import ClientError
+
+            logger = logging.getLogger()
+            logger.setLevel(logging.INFO)
+            SMTP_REGIONS = [
+                'us-east-2',       # US East (Ohio)
+                'us-east-1',       # US East (N. Virginia)
+                'us-west-2',       # US West (Oregon)
+                'ap-south-1',      # Asia Pacific (Mumbai)
+                'ap-northeast-2',  # Asia Pacific (Seoul)
+                'ap-southeast-1',  # Asia Pacific (Singapore)
+                'ap-southeast-2',  # Asia Pacific (Sydney)
+                'ap-northeast-1',  # Asia Pacific (Tokyo)
+                'ca-central-1',    # Canada (Central)
+                'eu-central-1',    # Europe (Frankfurt)
+                'eu-west-1',       # Europe (Ireland)
+                'eu-west-2',       # Europe (London)
+                'sa-east-1',       # South America (Sao Paulo)
+                'us-gov-west-1',   # AWS GovCloud (US)
+            ]
+            # These values are required to calculate the signature. Do not change them.
+            DATE = "11111111"
+            SERVICE = "ses"
+            MESSAGE = "SendRawEmail"
+            TERMINAL = "aws4_request"
+            VERSION = 0x04
+
+            def sign(key, msg):
+                return hmac.new(key, msg.encode('utf-8'), hashlib.sha256).digest()
+
+            def calculate_key(secret_access_key, region):
+                if region not in SMTP_REGIONS:
+                    raise ValueError(f"The {region} Region doesn't have an SMTP endpoint.")
+                signature = sign(("AWS4" + secret_access_key).encode('utf-8'), DATE)
+                signature = sign(signature, region)
+                signature = sign(signature, SERVICE)
+                signature = sign(signature, TERMINAL)
+                signature = sign(signature, MESSAGE)
+                signature_and_version = bytes([VERSION]) + signature
+                smtp_password = base64.b64encode(signature_and_version)
+                return smtp_password.decode('utf-8')
+
+            def exit_status(event, context, status):
+                logger.info(f"exit_status({status})")
+                if ('ResourceType' in event):
+                    if (event['ResourceType'].find('CustomResource') > 0):
+                        logger.info("cfnresponse:" + status)
+                        cfnresponse.send(event, context, status, {}, None)
+                return status 
+            def get_secret(smtpiamusersecretARN,region):
+                secret_name = smtpiamusersecretARN
+                region_name = region
+
+                # Create a Secrets Manager client
+                session = boto3.session.Session()
+                client = session.client(
+                    service_name='secretsmanager',
+                    region_name=region_name
+                )
+
+                try:
+                    get_secret_value_response = client.get_secret_value(
+                        SecretId=secret_name
+                    )
+                    return get_secret_value_response
+                except ClientError as e:
+                    raise e          
+            def update_secret(smtpiamusersecretARN,secretString,region):
+                secret_name = smtpiamusersecretARN
+                region_name = region
+
+                # Create a Secrets Manager client
+                session = boto3.session.Session()
+                client = session.client(
+                    service_name='secretsmanager',
+                    region_name=region_name
+                )
+
+                try:
+                  update_secret_response = client.update_secret(
+                  SecretId=secret_name,
+                  SecretString=secretString
+                  )
+                  return update_secret_response
+                except ClientError as e:
+                  raise e          
+
+            def lambda_handler(event, context):
+                if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
+                    logger.info("Cfn Delete event - no action - return Success")
+                    exit_status(event, context, cfnresponse.SUCCESS)
+
+                region = os.environ['AWS_REGION']
+                smtpiamusersecretARN=os.environ['IAMUserSecretARN']
+                
+                # Get the secret value
+                response = get_secret(smtpiamusersecretARN,region)
+                secret_value = json.loads(response['SecretString'])
+                logger.info("Fetching the IAM secret access key from the SMTP IAM user")
+                iamsecretaccesskey = secret_value['smtpiamsecretaccesskey']
+                logger.info("Computing the SMTP credentials")
+                smtpcredential=calculate_key(iamsecretaccesskey, region)
+                secret_value['smtpcredential']=smtpcredential
+                logger.info("Updating the secret with the SMTP credentials")
+                response = update_secret(smtpiamusersecretARN,json.dumps(secret_value),region)
+
+                return exit_status(event, context, cfnresponse.SUCCESS)
+
+      Handler: index.lambda_handler
+      Role: !GetAtt SMTPCredentialLambdaIAMRole.Arn
+      Runtime: python3.10
+      Timeout: 600
+      VpcConfig:
+        SecurityGroupIds: 
+          - !ImportValue 'SeedSecurityGroupId'
+        SubnetIds: 
+          - !ImportValue 'SeedSubnetId'
+      Environment: 
+        Variables:
+          IAMUserSecretARN: !Ref SMTPIAMUserAccessKeySecret
+          LOG_LEVEL: INFO
+
+  # Custom resource to call OCP function
+  CallCreateSMTPCredetialFn:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt CreateSMTPCredetial.Arn
+
+  # IAM Role that will be used by Lambda
+  SMTPCredentialLambdaIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: !Sub 'arn:${AWS::Partition}:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !ImportValue 'LambdaDeadLetterSNSTopic'
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                  - 'secretsmanager:UpdateSecret'
+                Resource: !Ref SMTPIAMUserAccessKeySecret
+
+Outputs:
+  AccessKeyId:
+    Value: !Ref SMTPUserAccessKey
+    Description: The access key ID for the IAM user
+  SMTPEndpoint:
+    Value: !Sub email-smtp-${AWS::Region}-amazonaws.com
+  SMTPPort:
+    Value: '587'
+  SMTPSecurityProtocol:
+    Value: 'STARTTLS'
+  SecretArn:
+    Description: The ARN of the secret containing the IAM user's security credentials
+    Value: 
+      Fn::Join:
+        - ""
+        - - "https://console.aws.amazon.com/secretsmanager/home?#!/secret?name="
+          - !Ref SMTPIAMUserAccessKeySecret

@@ -99,6 +99,13 @@ Parameters:
   RDSKMSKey: 
     Type: String
     Description: KMS Key ARN to encrypt to RDS
+  DeletionProtection:
+    Description: Enable Deletion Protection.
+    Type: String
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
 
 Resources:
   DBSubnetGroup:
@@ -165,12 +172,13 @@ Resources:
     Type: AWS::RDS::DBInstance
     Properties:
       AllocatedStorage: !Ref RDSAllocatedStorage
+      AutoMinorVersionUpgrade: false
       BackupRetentionPeriod: !Ref RDSBackupRetentionPeriod
       LicenseModel: license-included
       DBInstanceClass: !Ref RDSDBInstanceClass
       DBInstanceIdentifier: !Ref RDSDBInstanceIdentifier
       DBSubnetGroupName: !Ref DBSubnetGroup
-      DeletionProtection: true
+      DeletionProtection: !Ref DeletionProtection
       PubliclyAccessible: false
       Engine: sqlserver-se
       EngineVersion: 15.00.4236.7.v1
@@ -192,6 +200,12 @@ Outputs:
   OCPRDSDBEndpoint:
     Description: Endpoint to be passed to DSM installation properties file
     Value: !GetAtt OCPRDSDatabase.Endpoint.Address
+  JDBCEndpoint:
+    Description: JDBC Endpoint for Glue connection
+    Value: !Join [ "", [ 'jdbc:sqlserver://', !GetAtt OCPRDSDatabase.Endpoint.Address, ':', !GetAtt OCPRDSDatabase.Endpoint.Port , ';databaseName=maxdb80' ]]
+  OCPRDSDBVPCSecurityGroupId:
+    Description: VPC Security Group Id for RDS
+    Value: !Ref RDSSecurityGroup
   OCPROCPRDSDBPort:
     Description: Port to be passed to DSM installation properties file
     Value: !GetAtt OCPRDSDatabase.Endpoint.Port

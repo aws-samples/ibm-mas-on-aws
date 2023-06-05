@@ -147,6 +147,9 @@ Resources:
           # Clone the ibm-mas-on-aws github repo
           git clone https://github.com/aws-samples/ibm-mas-on-aws /root/ibm-mas-on-aws
 
+          # Update Session Manager preferences (command line)
+          aws ssm update-document --name "SSM-SessionManagerRunShell" --content "file:///root/ibm-mas-on-aws/config/SessionManagerRunShell.json" --document-version "\$LATEST" --region ${AWS::Region}
+
           # Install yq
           pip3 install yq
           # Signal the status from cfn-init
@@ -449,6 +452,20 @@ Resources:
       InstanceType: !Ref 'InstanceType'
       SecurityGroupIds: [!GetAtt 'BastionSecurityGroup.GroupId']
       KeyName: !Ref 'KeyName'
+      UserData:
+        Fn::Base64: !Sub |
+          <powershell>
+          # Install SSMS 2019
+          $folderpath="c:\windows\temp"
+          $filepath="$folderpath\SSMS-Setup-ENU.exe"
+          write-host "Downloading SQL Server 2019 SSMS..."
+          $URL = "https://download.microsoft.com/download/a/c/a/aca4e29f-6925-4d50-a06b-5576c6ea629f/SSMS-Setup-ENU.exe"
+          $clnt = New-Object System.Net.WebClient
+          $clnt.DownloadFile($url,$filepath)
+          $Parms = " /Install /Quiet /Norestart /Logs log.txt"
+          $Prms = $Parms.Split(" ")
+          & "$filepath" $Prms | Out-Null
+          </powershell>      
       BlockDeviceMappings:
       - DeviceName: "/dev/sda1"
         Ebs:

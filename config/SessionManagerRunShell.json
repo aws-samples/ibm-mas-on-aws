@@ -1,0 +1,10 @@
+{
+    "schemaVersion": "1.0",
+    "description": "Document to hold regional settings for Session Manager - Extend Session timeout",
+    "sessionType": "Standard_Stream",
+    "inputs": {
+        "s3EncryptionEnabled": false,
+        "idleSessionTimeout": "60",
+        "maxSessionDuration": "240"
+    }
+}
