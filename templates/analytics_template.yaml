@@ -1,0 +1,750 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  RedshiftCluster:
+    Type: AWS::Redshift::Cluster
+    # DependsOn: AttachGateway
+    Properties:
+      ClusterType: multi-node
+      NumberOfNodes: 2
+      NodeType: "ra3.4xlarge"
+      DBName: "dev"
+      Encrypted: true
+      MasterUsername: #"admin"
+        Fn::Sub: "{{resolve:secretsmanager:${RedshiftMasterSecret}::username}}" 
+      MasterUserPassword: #"Admin!88"
+        Fn::Sub: "{{resolve:secretsmanager:${RedshiftMasterSecret}::password}}"
+      ClusterParameterGroupName: 
+       Ref: RedshiftClusterParameterGroup
+      VpcSecurityGroupIds:
+      - Ref: RedshiftSecurityGroup
+      ClusterSubnetGroupName:
+        Ref: RedshiftClusterSubnetGroup
+      PubliclyAccessible: 'false'
+      Port: 5439
+  RedshiftClusterParameterGroup:
+    Type: AWS::Redshift::ClusterParameterGroup
+    Properties:
+      Description: Cluster parameter group
+      ParameterGroupFamily: redshift-1.0
+      Parameters:
+      - ParameterName: enable_user_activity_logging
+        ParameterValue: 'true'
+  RedshiftClusterSubnetGroup:
+    Type: AWS::Redshift::ClusterSubnetGroup
+    Properties:
+      Description: Cluster subnet group
+      SubnetIds: # Here
+      - !ImportValue RedshiftSubnetGroupPrivateSubnet1 #subnet-0886ab874413d8480
+      - !ImportValue RedshiftSubnetGroupPrivateSubnet2
+      # - !ImportValue RedshiftSubnetGroupPrivateSubnet3
+      # - subnet-0b13b911555a4b373
+  RedshiftSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Redshift Security group
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+      - CidrIp: "54.153.249.96/27" # QuickSight ap-southeast-2 region
+        FromPort: 5439
+        ToPort: 5439
+        IpProtocol: tcp
+      VpcId: !ImportValue VPCId #"vpc-09ca39f02abb0898f"
+  RedshiftSGSelfReferenceIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: RedshiftSecurityGroup
+    Properties:
+      GroupId:
+        Ref: RedshiftSecurityGroup
+      IpProtocol: tcp
+      FromPort: '0'
+      ToPort: '65535'
+      SourceSecurityGroupId:
+        Ref: RedshiftSecurityGroup
+  SGRDSSourceIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: RedshiftSecurityGroup
+    Properties:
+      GroupId:
+        Ref: RedshiftSecurityGroup
+      IpProtocol: tcp
+      FromPort: '5439'
+      ToPort: '5439'
+      SourceSecurityGroupId: !ImportValue RedshiftRDSSGId # sg-04d2ee5e3fe8c83ea
+        # Ref: VPC
+  MasAnalyticsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: MasAnalyticsRole-88
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - redshift.amazonaws.com
+                - glue.amazonaws.com
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonRedshiftFullAccess
+        - arn:aws:iam::aws:policy/AmazonRDSFullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  RedshiftMasterSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: This is a Secrets Manager secret for a Redshift cluster
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: password
+        PasswordLength: 16
+        ExcludeCharacters: "\"'@/\\"
+      Tags:
+        - 
+          Key: RedshiftCluster
+          Value: Mas-Analytics
+  SecretRedshiftAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId:
+        Ref: RedshiftMasterSecret
+      TargetId:
+        Ref: RedshiftCluster
+      TargetType: AWS::Redshift::Cluster
+  ################################
+  #### AWS Glue Connections ####
+  ################################
+  GlueRDSConnection:
+    Type: AWS::Glue::Connection
+    Properties: 
+      CatalogId: !Ref AWS::AccountId
+      ConnectionInput: 
+        ConnectionProperties: 
+          JDBC_CONNECTION_URL: !ImportValue RDSJDBCEndpoint # "jdbc:sqlserver://masonaws.caqssya4hey8.ap-southeast-2.rds.amazonaws.com:1433;databaseName=maxdb80"
+          USERNAME: "admin"
+          PASSWORD: "o3<H=U9dK#Rq+v?|"
+          JDBC_ENFORCE_SSL: False
+        ConnectionType: JDBC
+        PhysicalConnectionRequirements: 
+          AvailabilityZone: !Select [ 0, !GetAZs '' ] #"ap-southeast-2c"
+          SecurityGroupIdList: 
+            - !ImportValue RedshiftRDSSGId # sg-04d2ee5e3fe8c83ea
+          SubnetId: !ImportValue RedshiftSubnetGroupPrivateSubnet1 # subnet-0521aacc6dea9a015
+        Name: rds-cnn-cfn-01
+  GlueRedshiftConnection:
+    Type: AWS::Glue::Connection
+    Properties: 
+      CatalogId: !Ref AWS::AccountId
+      ConnectionInput: 
+        ConnectionProperties: 
+          JDBC_CONNECTION_URL:  !Join [ "", ["jdbc:redshift://", !Sub "${RedshiftCluster.Endpoint.Address}:${RedshiftCluster.Endpoint.Port}", "/dev" ]]
+          USERNAME: #"admin"
+            Fn::Sub: "{{resolve:secretsmanager:${RedshiftMasterSecret}::username}}" 
+          PASSWORD: #"Admin!88"
+            Fn::Sub: "{{resolve:secretsmanager:${RedshiftMasterSecret}::password}}"
+          JDBC_ENFORCE_SSL: False
+        ConnectionType: JDBC
+        PhysicalConnectionRequirements: 
+          AvailabilityZone: !Select [ 0, !GetAZs '' ]
+          SecurityGroupIdList: 
+            - Ref: RedshiftSecurityGroup
+            # - sg-06a4076899128a0e9
+          SubnetId:  !ImportValue RedshiftSubnetGroupPrivateSubnet1 # subnet-0b13b911555a4b373
+        Name: redshift-cnn-cfn-01
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties: 
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput: 
+        Name: mas-db-01
+  ################################
+  #### S3 bucket ####
+  ################################
+  AnalyticsBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      # BucketName: !Ref BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+  
+  ################################
+  #### AWS Glue Crawler ####
+  ################################
+  MasRDSCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: "cfn-rds-crawler-01"
+      Role: !GetAtt MasAnalyticsRole.Arn
+      #Classifiers: none, use the default classifier
+      Description: "AWS Glue crawler to crawl Maximo RDS database"
+      # Schedule:
+      #   ScheduleExpression: "cron(0/5 * * * ? *)"
+      DatabaseName: !Ref GlueDatabase
+      Targets:
+        JdbcTargets:
+          # JDBC MySQL database with the flights data
+          - ConnectionName: !Ref GlueRDSConnection
+            Path: maxdb80/dbo/%
+            Exclusions: 
+              - "amc*"
+              - "ap*"
+              - "auto*"
+              - "[b-h]*"
+              - "k*"
+              - "[m-q]*"
+              - "[s-v]*"
+              - "[x-z]*"
+      # TablePrefix: !Ref CFNTablePrefixName
+      SchemaChangePolicy:
+        UpdateBehavior: "UPDATE_IN_DATABASE"
+        DeleteBehavior: "LOG"
+  ################################
+  #### AWS Glue Jobs ####
+  ################################ 
+  ### Asset ###
+  AssetGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/asset.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-asset-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### Assetmaster ###
+  AssetmeterGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/assetmeter.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-assetmeter-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### Assetspec###
+  AssetspecGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/assetspec.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-assetspec-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### Assetspechist###
+  assetspechistGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/assetspechist.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-assetspechist-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### invreserve ###
+  invreserveGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/invreserve.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-invreserve-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### jobplan ###
+  jobplanGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/jobplan.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-jobplan-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### locations ###
+  locationsGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/locations.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-locations-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### relatedrecord ###
+  relatedrecordGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/relatedrecord.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-relatedrecord-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### woactivity ###
+  woactivityGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/woactivity.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-woactivity-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### workorder ###
+  workorderGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/workorder.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-workorder-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### workorderspec ###
+  workorderspecGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/workorderspec.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-workorderspec-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### woserviceaddress ###
+  woserviceaddressGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/woserviceaddress.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-woserviceaddress-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### wostatus ###
+  wostatusGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wostatus.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-wostatus-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### wplabor ###
+  wplaborGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wplabor.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-wplabor-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### wpmaterial ###
+  wpmaterialGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wpmaterial.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-wpmaterial-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### woactivity ###
+  wpserviceGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wpservice.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-wpservice-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+  ### wptool ###
+  wptoolGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wptool.py"
+      # DefaultArguments:
+      #   "--job-bookmark-option": "job-bookmark-enable"
+      GlueVersion: 3.0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxRetries: 0
+      Name: mas-redshift-load-wptool-01
+      Connections:
+        Connections: 
+          - !Ref GlueRDSConnection
+          - !Ref GlueRedshiftConnection
+      Role: !Ref MasAnalyticsRole
+################################
+#### Lambda functions ####
+################################ 
+  StartGlueCrawlerLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: 'cfn-start-rds-crawler'
+      ReservedConcurrentExecutions: 1
+      #KmsKeyArn: !ImportValue 'LambdaKMSKey'
+      Code:
+          ZipFile: |
+            import os
+            import logging
+            import cfnresponse
+
+            logger = logging.getLogger()
+            logger.setLevel(logging.INFO)
+
+            # Import Boto 3 for AWS Glue
+            import boto3
+            client = boto3.client('glue')
+
+            # Variables for the job: 
+            crawlerName = "cfn-rds-crawler-01"
+
+            def exit_status(event, context, status):
+                logger.info(f"exit_status({status})")
+                if ('ResourceType' in event):
+                    if (event['ResourceType'].find('CustomResource') > 0):
+                        logger.info("cfnresponse:" + status)
+                        cfnresponse.send(event, context, status, {}, None)
+                return status 
+
+            # Define Lambda function
+            def lambda_handler(event, context):
+
+                if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
+                    logger.info("Cfn Delete event - no action - return Success")
+                    exit_status(event, context, cfnresponse.SUCCESS)
+
+                logger.info('## INITIATED BY EVENT: ')
+                response = client.start_crawler(Name=crawlerName)
+                logger.info('## STARTED GLUE CRAWLER: ' + crawlerName)
+                return exit_status(event, context, cfnresponse.SUCCESS)  
+
+      Handler: index.lambda_handler
+      Role: !GetAtt MasAnalyticsRole.Arn
+      Runtime: python3.10
+      Timeout: 600
+  StartGlueJobsLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: 'cfn-start-redshift-load-jobs'
+      ReservedConcurrentExecutions: 1
+      #KmsKeyArn: !ImportValue 'LambdaKMSKey'
+      Code:
+          ZipFile: |
+            # Set up logging
+            import json
+            import os
+            import logging
+            import cfnresponse
+
+            logger = logging.getLogger()
+            logger.setLevel(logging.INFO)
+
+            # Import Boto 3 for AWS Glue
+            import boto3
+            client = boto3.client('glue')
+
+            def exit_status(event, context, status):
+                logger.info(f"exit_status({status})")
+                if ('ResourceType' in event):
+                    if (event['ResourceType'].find('CustomResource') > 0):
+                        logger.info("cfnresponse:" + status)
+                        cfnresponse.send(event, context, status, {}, None)
+                return status 
+
+            # Define Lambda function
+            def lambda_handler(event, context):
+
+                if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
+                    logger.info("Cfn Delete event - no action - return Success")
+                    exit_status(event, context, cfnresponse.SUCCESS)
+
+                logger.info('## INITIATED BY EVENT: ')
+                response = client.start_job_run(JobName = 'mas-redshift-load-asset-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-asset-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-assetmeter-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-assetmeter-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-assetspec-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-assetspec-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-assetspechist-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-assetspechist-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-invreserve-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-invreserve-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-jobplan-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-jobplan-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-locations-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-locations-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-relatedrecord-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-relatedrecord-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-woactivity-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-woactivity-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-workorder-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-workorder-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-workorderspec-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-workorderspec-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-woserviceaddress-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-woserviceaddress-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-wostatus-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-wostatus-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-wplabor-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-wplabor-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-wpmaterial-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-wpmaterial-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-wpservice-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-wpservice-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                response = client.start_job_run(JobName = 'mas-redshift-load-wptool-01')
+                logger.info('## STARTED GLUE JOB: ' + 'mas-redshift-load-wptool-01')
+                logger.info('## GLUE JOB RUN ID: ' + response['JobRunId'])
+
+                return exit_status(event, context, cfnresponse.SUCCESS) 
+
+      Handler: index.lambda_handler
+      Role: !GetAtt MasAnalyticsRole.Arn
+      Runtime: python3.10
+      Timeout: 600
+      # VpcConfig:
+      #   SecurityGroupIds: 
+      #     - Ref: RedshiftSecurityGroup
+      #   SubnetIds: 
+      #     - !ImportValue RedshiftSubnetGroupPrivateSubnet1
+      Environment: 
+        Variables:
+          LOG_LEVEL: INFO
+  ### EventBridge to kick off StartGlueJobsLambda when Crawler finished running ###
+  MyGlueCrawlerSuccessEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: This rule is to detect when crawler completes successfully
+      Name: 'glue-rds-cralwe-success'
+      EventPattern:
+        source:
+          - aws.glue
+        detail-type:
+          # Check the available detail types here:
+          # https://docs.aws.amazon.com/glue/latest/dg/automating-awsglue-with-cloudwatch-events.html
+          - Glue Crawler State Change
+        detail:
+          crawlerName:
+            - !Ref MasRDSCrawler
+          state:
+            - Succeeded
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt StartGlueJobsLambda.Arn
+          Id: 'LambdaToTriggerGlueJobs'
+  PermissionForEventToCallLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref StartGlueJobsLambda
+      Principal: events.amazonaws.com
+      #Source: !Ref AWS::AccountId
+      SourceArn: !GetAtt MyGlueCrawlerSuccessEvent.Arn
+  ### Custom resource to kick off Lambda for Glue Crawler ###
+  CallStartGlueCrawlerLambda:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt StartGlueCrawlerLambda.Arn
+################################
+#### Outputs ####
+################################ 
+Outputs:
+  RedshiftClusterEndpoint:
+    Description: Redshift Cluster endpoint
+    Value: !Sub "${RedshiftCluster.Endpoint.Address}:${RedshiftCluster.Endpoint.Port}"
+  GlueDatabaseName:
+    Description: AWS Glue database name that stores RDS metadata
+    Value: !Ref GlueDatabase
+  AnalyticsBucketName:
+    Description: Name of the main bucket
+    Value: !Ref AnalyticsBucket
+
