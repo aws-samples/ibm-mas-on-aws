@@ -75,6 +75,7 @@
                 "ec2:ModifyNetworkInterfaceAttribute",
                 "ec2:ModifySubnetAttribute",
                 "ec2:ModifyVpcAttribute",
+                "ec2:DeletePlacementGroup",
                 "ec2:ReleaseAddress",
                 "ec2:ReplaceRouteTableAssociation",
                 "ec2:RevokeSecurityGroupEgress",
