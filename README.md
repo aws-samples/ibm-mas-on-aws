@@ -9,8 +9,8 @@ IBM Maximo is a commercial off the shelf (COTS) licensed software. You will need
 It is assumed that the audience following the workshop has a Level 100-200 knowledge of RedHat OpenShift and IBM Maximo.
 
 The following set of instructions have been tested with the following Product versions:
-* RedHat OpenShift Cluster 4.10.18
-* Maximo Application Suite 8.4
+* RedHat OpenShift Cluster 4.12.18
+* Maximo Application Suite 8.6
 * AWS RDS MS SQL 2019
 
 ## Deploying the AWS infrastructure (using AWS CloudFormation)

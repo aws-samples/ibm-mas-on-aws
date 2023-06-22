@@ -43,13 +43,17 @@ Metadata:
                 - 06RDSBackupRetentionPeriod
                 - 06RDSMasterUsername
                 - 06MultiAZ
-
+          - Label:
+              default: IBM Entitlement Key 
+            Parameters:
+                - 07IBMEntitlementKey
 
 Description: 'CFN Template to create a Seed EC2 instance with ansible collection installed'
 Conditions:
   IsDeployPHZ: !Equals [!Ref 02DeployPHZ, 'true']
   IsDeploySeedBastion: !Equals [!Ref 04DeploySeedBastion, 'true']
   IsDeployRDS: !Equals [!Ref 06DeployRDS, 'true']
+  IsIBMEntitlementKeyPresent: !Not [!Equals [!Ref 07IBMEntitlementKey, ""]]
 
 Parameters:
   01VpcCIDR:
@@ -114,7 +118,7 @@ Parameters:
   05OCPClusterVersion:
     Type: String
     Description: Version of the OCP Cluster
-    Default: '4.10.35'
+    Default: '4.12.18'
   05ClusterSize:
     Type: String
     Description: Cluster size - small, medium or large. Check the Cluster Size section at https://www.ibm.com/docs/en/mas87/8.7.0?topic=installation-considerations#Cluster%20Size
@@ -186,8 +190,19 @@ Parameters:
     AllowedValues:
     - 'true'
     - 'false'
+  07IBMEntitlementKey:
+    Type: String
+    NoEcho: true
+    Description: IBM Entitlement Key to access the IBM Maximo Application images
 
 Resources:
+  IBMEntitlementKeySecret:
+    Condition: IsIBMEntitlementKeyPresent
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: IBM Entitlement Key AWS Secret Manager secret
+      SecretString: !Ref 07IBMEntitlementKey
+
   05PreReqS3Bucket:
     Type: AWS::S3::Bucket
     Description: S3 bucket name of the pre-requisite bucket. Naming convention masocp-license-{AWS.Region}-{AWS.AccountNumber}
@@ -364,13 +379,13 @@ Outputs:
     Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/pending_oc_updates.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !Ref 03PrivateHostedZone, '"' ]]
   04DeployMASOperatorCommand:
     Description: Command to Deploy the MAS Operator on OpenShift Cluster
-    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_mascore.sh "IBM_ENTITLEMENT_KEY"', '' ]]
+    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_mascore.sh "', !Ref 05OCPClusterName , '" "', !Ref IBMEntitlementKeySecret,'"', '' ]]
   05GenMASJDBCCommand:
     Description: Command to generate MAS JDBC config. If deploying RDS SQL using CFN stack, then get the JDBC Connection String from RDS Stack output
     Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/gen_mas_jdbc.sh "MAS_JDBC_USER" "MAS_JDBC_PASSWORD" "',!GetAtt RDSStack.Outputs.JDBCConnectionString, '" "S3URI_CERTPEM_FILE"', '' ]]
   06AddMaximoManageCommand:
     Description: Command to deploy Maximo Manage on MAS. 
-    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/add_maximo_manage.sh "IBM_ENTITLEMENT_KEY"' , '' ]]
+    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/add_maximo_manage.sh "', !Ref IBMEntitlementKeySecret,'"', '' ]]
   07JDBCConnectionString:
     Condition: IsDeployRDS
     Description: JDBC connection string to connect Maximo Manage to RDS. Remember to create a Database after the DB instance is ready

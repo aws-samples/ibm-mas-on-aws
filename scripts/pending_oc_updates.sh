@@ -25,7 +25,7 @@ aws s3 cp s3://${BUCKETNAME}/container-runtime-config.yml /root/install-dir/cont
 echo `date "+%Y/%m/%d %H:%M:%S"` "Sleeping before connecting to OCP Cluster using oc"
 sleep 10
 
-oc apply -f /root/install-dir/container-runtime-config.yml --kubeconfig /root/install-dir/auth/kubeconfig
+oc create -f /root/install-dir/container-runtime-config.yml --kubeconfig /root/install-dir/auth/kubeconfig
 
 ## Fetch the VPC where the Load Balancer has been created by the openshift-install program
 export VPCID=`aws ec2 describe-vpcs --region ${IPI_REGION} --query 'Vpcs[?(Tags[?contains(Key,'\'${CLUSTER_NAME}\'' )])].VpcId' --output text`

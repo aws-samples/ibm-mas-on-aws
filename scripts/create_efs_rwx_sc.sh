@@ -48,8 +48,9 @@ aws efs create-access-point --file-system-id ${EFSID} --client-token mas_devops.
 ## Configure a new Storage Class in OCP cluster with the create EFS
 echo `date "+%Y/%m/%d %H:%M:%S"` "Creating Storage class in OCP cluster"
 oc apply -f /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/operator-group.yml.j2 --kubeconfig /root/install-dir/auth/kubeconfig
-oc apply -f /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/efs-csi-subscription.yml.j2 --kubeconfig /root/install-dir/auth/kubeconfig
-oc apply -f /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/aws-secret.yml.j2 --kubeconfig /root/install-dir/auth/kubeconfig
+sed 's/{{ aws_efs_default_channel }}/stable/g;s/{{ aws_efs_source }}/redhat-operators/g;s/{{ aws_efs_source_namespace }}/openshift-marketplace/g' /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/efs-csi-subscription.yml.j2 > /root/install-dir/efs-csi-subscription.yml
+# Installation of the AWS EFS CSI Driver Operator creates an IAM user and also a secret aws-efs-cloud-credentials under namespace openshift-cluster-csi-drivers with the IAM accesskey and IAM secret 
+oc apply -f /root/install-dir/efs-csi-subscription.yml
 oc apply -f /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/efs-csi-driver.yml.j2 --kubeconfig /root/install-dir/auth/kubeconfig
 sed 's/rosa/ocp/g;s/{{ efs_id }}/'${EFSID}'/g' /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/efs-csi-storage-class.yml.j2 > /root/install-dir/efs-csi-storage-class.yml
 oc apply -f /root/install-dir/efs-csi-storage-class.yml --kubeconfig /root/install-dir/auth/kubeconfig
