@@ -209,24 +209,24 @@ Resources:
   #### AWS Glue Jobs ####
   ################################ 
   ### Asset ###
-  AssetGlueJob:
-    Type: AWS::Glue::Job
-    Properties:
-      Command:
-        Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/asset.py"
-      # DefaultArguments:
-      #   "--job-bookmark-option": "job-bookmark-enable"
-      GlueVersion: 3.0
-      ExecutionProperty:
-        MaxConcurrentRuns: 1
-      MaxRetries: 0
-      Name: mas-redshift-load-asset-01
-      Connections:
-        Connections: 
-          - !Ref GlueRDSConnection
-          - !Ref GlueRedshiftConnection
-      Role: !Ref MasAnalyticsRole
+  # AssetGlueJob:
+  #   Type: AWS::Glue::Job
+  #   Properties:
+  #     Command:
+  #       Name: glueetl
+  #       ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/asset.py"
+  #     # DefaultArguments:
+  #     #   "--job-bookmark-option": "job-bookmark-enable"
+  #     GlueVersion: 3.0
+  #     ExecutionProperty:
+  #       MaxConcurrentRuns: 1
+  #     MaxRetries: 0
+  #     Name: mas-redshift-load-asset-01
+  #     Connections:
+  #       Connections: 
+  #         - !Ref GlueRDSConnection
+  #         - !Ref GlueRedshiftConnection
+  #     Role: !Ref MasAnalyticsRole
   ### Assetmaster ###
   AssetmeterGlueJob:
     Type: AWS::Glue::Job
