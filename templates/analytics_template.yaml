@@ -19,7 +19,7 @@ Resources:
       - Ref: RedshiftSecurityGroup
       ClusterSubnetGroupName:
         Ref: RedshiftClusterSubnetGroup
-      PubliclyAccessible: 'true'
+      PubliclyAccessible: 'false'
       Port: 5439
   RedshiftClusterParameterGroup:
     Type: AWS::Redshift::ClusterParameterGroup
@@ -75,6 +75,52 @@ Resources:
       ToPort: '5439'
       SourceSecurityGroupId: !ImportValue RedshiftRDSSGId # sg-04d2ee5e3fe8c83ea
         # Ref: VPC
+  QuickSightSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Quicksight Security group
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        SourceSecurityGroupId:
+         Ref: RedshiftSecurityGroup
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        SourceSecurityGroupId:
+         Ref: RedshiftSecurityGroup
+      VpcId: !ImportValue VPCId #"vpc-09ca39f02abb0898f"
+  RedshiftSGSelfReferenceIngressFromQS:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: 
+      - RedshiftSecurityGroup
+      - QuickSightSecurityGroup
+    Properties:
+      GroupId:
+        Ref: RedshiftSecurityGroup
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId:
+        Ref: QuickSightSecurityGroup
+  RedshiftSGSelfReferenceEgressToQS:
+    Type: AWS::EC2::SecurityGroupEgress
+    DependsOn: 
+      - RedshiftSecurityGroup
+      - QuickSightSecurityGroup
+    Properties:
+      GroupId:
+        Ref: RedshiftSecurityGroup
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      DestinationSecurityGroupId: 
+        Ref: QuickSightSecurityGroup
+  ###################
+  #### IAM Role ####
+  ##################
   MasAnalyticsRole:
     Type: AWS::IAM::Role
     Properties:
@@ -88,6 +134,7 @@ Resources:
                 - redshift.amazonaws.com
                 - glue.amazonaws.com
                 - lambda.amazonaws.com
+                - quicksight.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonS3FullAccess
@@ -95,6 +142,29 @@ Resources:
         - arn:aws:iam::aws:policy/AmazonRDSFullAccess
         - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  QSPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: MyPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - quicksight:ListVPCConnections
+              - quicksight:CreateVPCConnection
+              - quicksight:DescribeVPCConnection
+              - quicksight:DeleteVPCConnection
+              - quicksight:UpdateVPCConnection
+              - ec2:describeSubnets
+              - ec2:describeVpcs
+              - ec2:describeSecurityGroups
+              - iam:ListRole
+            Resource: '*'
+      Roles:
+        - !Ref MasAnalyticsRole
+  
+  
   RedshiftMasterSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -712,4 +782,6 @@ Outputs:
   AnalyticsBucketName:
     Description: Name of the main bucket
     Value: !Ref AnalyticsBucket
-
+  QuickSightSGId:
+    Description: Name of the main bucket
+    Value: !Ref QuickSightSecurityGroup
