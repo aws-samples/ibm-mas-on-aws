@@ -3,8 +3,16 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
-if [[ $# -ne 4 ]]; then
-    echo "Usage: $0 MAS_JDBC_USER MAS_JDBC_PASSWORD MAS_JDBC_URL S3URI_CERTPEM_FILE"
+# Trap the SIGINT signal (Ctrl+C)
+trap ctrl_c INT
+
+function ctrl_c() {
+    echo "Stopping the script..."
+    exit 1
+}
+
+if [[ $# -ne 3 ]]; then
+    echo "Usage: $0 MAS_JDBC_USER MAS_JDBC_PASSWORD MAS_JDBC_URL"
     exit
 fi
 echo `date "+%Y/%m/%d %H:%M:%S"` "Certificate File ..... " $4
@@ -14,13 +22,13 @@ echo `date "+%Y/%m/%d %H:%M:%S"` "JDBC Url ......... " $3
 EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
 export AWS_DEFAULT_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
 
-aws s3 cp $4 /root/install-dir/db_cert.pem --region ${AWS_DEFAULT_REGION}
+#aws s3 cp $4 /root/install-dir/db_cert.pem --region ${AWS_DEFAULT_REGION}
 export MAS_INSTANCE_ID=masinst1
 export MAS_WORKSPACE_ID=masdev
 export MAS_JDBC_USER=$1
 export MAS_JDBC_PASSWORD=$2
 export MAS_JDBC_URL=$3
-export MAS_JDBC_CERT_LOCAL_FILE="/root/install-dir/db_cert.pem"
+export MAS_JDBC_CERT_LOCAL_FILE="/root/install-dir/${AWS_DEFAULT_REGION}-bundle.pem"
 export MAS_CONFIG_SCOPE=wsapp
 export MAS_APP_ID=manage
 export MAS_CONFIG_DIR="/root/install-dir/masconfig"

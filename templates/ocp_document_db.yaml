@@ -1,0 +1,159 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description:  "Template to create a Document DB Cluster for MAS install"
+
+Parameters: 
+  DBClusterName: 
+    Default: docdb-mas
+    Description: "Cluster name"
+    Type: "String"
+    MinLength: "1"
+    MaxLength: "64"
+    AllowedPattern : "[a-zA-Z][a-zA-Z0-9]*(-[a-zA-Z0-9]+)*"
+    ConstraintDescription: "Must begin with a letter and contain only alphanumeric characters."
+
+  MasterUser:
+    Default: "docdbadmin"
+    Description: "The database admin account username"
+    Type: "String"
+    MinLength: "1"
+    MaxLength: "16"
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: "Must begin with a letter and contain only alphanumeric characters."
+
+  DBInstanceClass:
+    Description: "Instance class. Please refer to: https://docs.aws.amazon.com/documentdb/latest/developerguide/db-instance-classes.html#db-instance-classes-by-region"
+    Default: "db.t3.medium"
+    Type: "String"
+    AllowedValues:
+      - db.t3.medium
+      - db.r5.large
+      - db.r5.xlarge
+      - db.r5.2xlarge
+      - db.r5.4xlarge
+      - db.r5.12xlarge
+      - db.r5.24xlarge                             
+    ConstraintDescription: "Instance type must be of the ones supported for the region. Please refer to: https://docs.aws.amazon.com/documentdb/latest/developerguide/db-instance-classes.html#db-instance-classes-by-region"  
+  VpcId:
+    Type: String
+    Description: VPC Id for the Existing VPC
+  VpcCIDR:
+    Type: String
+    Description: VPC CIDR for the Existing VPC
+  PrivateSubnet1:
+    Type: String
+    Description: Private Subnet 1 in VPC
+  PrivateSubnet2:
+    Type: String
+    Description: Private Subnet 2 in VPC
+  PrivateSubnet3:
+    Type: String
+    Description: Private Subnet 3 in VPC
+  KMSKey: 
+    Type: String
+    Description: KMS Key ARN to encrypt to RDS
+
+Resources:
+  DocDBPassword:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      KmsKeyId: !Ref KMSKey
+      GenerateSecretString:
+        SecretStringTemplate: !Join [ '', [ '{"username": "', !Ref MasterUser, '"}' ] ]
+        GenerateStringKey: 'password'
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\'
+        ExcludePunctuation: true     
+
+  DocDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable DocDB access via port 27017
+      SecurityGroupIngress:
+      - Description: "Allow traffic on Port 27017 from the Bastion Security group"
+        IpProtocol: tcp
+        FromPort: 27017
+        ToPort: 27017
+        CidrIp: !Ref VpcCIDR
+      SecurityGroupEgress:
+      - Description: "Allow traffic to Internet on all ports"
+        IpProtocol: tcp
+        FromPort: 27017
+        ToPort: 27017
+        CidrIp: !Ref VpcCIDR
+      VpcId: !Ref VpcId
+
+  DocDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName:
+        !Sub ${AWS::StackName}-docdb-subnet-group
+      DBSubnetGroupDescription: DocumentDB Custom Private Network
+      SubnetIds:
+      - !Ref PrivateSubnet1
+      - !Ref PrivateSubnet2
+      - !Ref PrivateSubnet3
+
+  DocumentDBCluster:
+    Type: AWS::DocDB::DBCluster
+    Properties:
+      DBClusterIdentifier: !Ref DBClusterName
+      EngineVersion: 4.0.0
+      MasterUsername: !Ref MasterUser
+      MasterUserPassword: !Join [ '', [ '{{resolve:secretsmanager:', !Ref DocDBPassword, ':SecretString:password}}' ] ]
+      Port : "27017"
+      VpcSecurityGroupIds:
+        - !Ref DocDBSecurityGroup
+      DBSubnetGroupName: !Ref DocDBSubnetGroup
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: "07:00-09:00"
+      PreferredMaintenanceWindow: "sun:05:00-sun:06:00"
+      StorageEncrypted: true
+      KmsKeyId: !Ref KMSKey
+      AvailabilityZones:
+        - !Select [ 0, !GetAZs  '' ] 
+        - !Select [ 1, !GetAZs  '' ] 
+        - !Select [ 2, !GetAZs  '' ] 
+      Tags:
+        - Key: Name
+          Value: !Ref DBClusterName
+  DBInstance1:
+    Type: "AWS::DocDB::DBInstance"
+    Properties:
+      DBClusterIdentifier: !Ref DBClusterName
+      DBInstanceIdentifier: !Join [ '-', [ !Ref DBClusterName, '1' ] ]
+      DBInstanceClass: !Ref DBInstanceClass
+    DependsOn: DocumentDBCluster
+  
+  DBInstance2:
+    Type: "AWS::DocDB::DBInstance"
+    Properties:
+      DBClusterIdentifier: !Ref DBClusterName
+      DBInstanceIdentifier: !Join [ '-', [ !Ref DBClusterName, '2' ] ]
+      DBInstanceClass: !Ref DBInstanceClass
+    DependsOn: DocumentDBCluster
+  
+  DBInstance:
+    Type: "AWS::DocDB::DBInstance"
+    Properties:
+      DBClusterIdentifier: !Ref DBClusterName
+      DBInstanceIdentifier: !Join [ '-', [ !Ref DBClusterName, '3' ] ]
+      DBInstanceClass: !Ref DBInstanceClass
+    DependsOn: DocumentDBCluster    
+
+Outputs:
+  ClusterId:
+    Value: !Ref DocumentDBCluster
+  ClusterEndpoint:
+    Value: !GetAtt DocumentDBCluster.Endpoint
+  ClusterPort:
+    Value: !GetAtt DocumentDBCluster.Port
+  EngineVersion:
+    Value: "4.0.0"
+  MongoHosts: 
+    Value:  !Join [ '', [ !GetAtt DBInstance1.Endpoint, ':', !GetAtt DBInstance1.Port,',',!GetAtt DBInstance2.Endpoint, ':', !GetAtt DBInstance2.Port,',',!GetAtt DBInstance.Endpoint, ':', !GetAtt DBInstance.Port ] ]
+  DocDBSecretARN:
+    Value: !Ref DocDBPassword
+

@@ -3,6 +3,14 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
+# Trap the SIGINT signal (Ctrl+C)
+trap ctrl_c INT
+
+function ctrl_c() {
+    echo "Stopping the script..."
+    exit 1
+}
+
 if [[ $# -ne  2 ]]; then
         echo "Usage: $0 CLUSTERNAME BASEDOMAIN"
         exit

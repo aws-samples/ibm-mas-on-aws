@@ -163,6 +163,7 @@
                 "kms:GetKeyRotationStatus",
                 "kms:ListResourceTags",
                 "kms:ScheduleKeyDeletion",
+                "kms:Decrypt",
                 "rds:DescribeDBSubnetGroups",
                 "rds:CreateDBSubnetGroup",
                 "rds:DescribeDBClusters",

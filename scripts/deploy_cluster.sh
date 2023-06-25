@@ -3,6 +3,14 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
+# Trap the SIGINT signal (Ctrl+C)
+trap ctrl_c INT
+
+function ctrl_c() {
+    echo "Stopping the script..."
+    exit 1
+}
+
 if [[ $# -ne 3 ]]; then
         echo "Usage: $0 BUCKETNAME CLUSTER_NAME BASE_DOMAIN"
         exit
@@ -22,7 +30,7 @@ EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availa
 export AWS_DEFAULT_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
 
 # Update Session Manager preferences (command line)
-aws ssm update-document --name SSM-SessionManagerRunShell --content "file:///root/ibm-mas-on-aws/config/SessionManagerRunShell.json" --document-version "\$LATEST" --region ${AWS_DEFAULT_REGION}
+# aws ssm update-document --name SSM-SessionManagerRunShell --content "file:///root/ibm-mas-on-aws/config/SessionManagerRunShell.json" --document-version "\$LATEST" --region ${AWS_DEFAULT_REGION}
 
 echo `date "+%Y/%m/%d %H:%M:%S"` "Sleeping for 10 seconds before downloading the install-config-wip.yaml file"
 aws s3 cp s3://${BUCKETNAME}/install-config-wip.yaml /root/install-dir/install-config-wip.yaml --region ${AWS_DEFAULT_REGION}
@@ -30,6 +38,20 @@ aws s3 cp s3://${BUCKETNAME}/install-config-wip.yaml /root/install-dir/install-c
 # Download entitlement.lic and pull-secret from S3
 aws s3 cp s3://${BUCKETNAME}/pull-secret /root/install-dir/pull-secret.txt --region ${AWS_DEFAULT_REGION}
 aws s3 cp s3://${BUCKETNAME}/entitlement.lic /root/install-dir/entitlement.lic --region ${AWS_DEFAULT_REGION}
+
+# Download the Certificate bundles for specific AWS Regions
+# Note this is the certificate that will be used for RDS and Document DB
+if [[ ${AWS_DEFAULT_REGION} == *gov* ]]; then DBCRT="https://truststore.pki.us-gov-west-1.rds.amazonaws.com/${AWS_DEFAULT_REGION}/${AWS_DEFAULT_REGION}-bundle.pem"; else DBCRT="https://truststore.pki.rds.amazonaws.com/${AWS_DEFAULT_REGION}/${AWS_DEFAULT_REGION}-bundle.pem"; fi
+wget -q ${DBCRT} -P /root/install-dir/
+[ ! -f "/root/install-dir/${AWS_DEFAULT_REGION}-bundle.pem" ] && echo "The certificate bundle for the region not found. Ensure file is present in downloaded" && exit 1
+aws s3 cp /root/install-dir/${AWS_DEFAULT_REGION}-bundle.pem s3://${BUCKETNAME}/${AWS_DEFAULT_REGION}-bundle.pem --region ${AWS_DEFAULT_REGION}
+
+# Download the container-runtime-config.yml
+wget -q https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/container-runtime-config.yml -P /root/install-dir/
+[ ! -f "/root/install-dir/container-runtime-config.yml" ] && echo "The container-runtime-config.yml could not be downloaded" && exit 1
+aws s3 cp /root/install-dir/container-runtime-config.yml s3://${BUCKETNAME}/container-runtime-config.yml --region ${AWS_DEFAULT_REGION}
+
+
 
 [ ! -f "/root/install-dir/pull-secret.txt" ] && echo "pull-secret file not found. Ensure file is present in the pre-requisite s3 bucket" && exit 1
 [ ! -f "/root/install-dir/entitlement.lic" ] && echo "entitlement.lic file not found. Ensure file is present in the pre-requisite s3 bucket" && exit 1

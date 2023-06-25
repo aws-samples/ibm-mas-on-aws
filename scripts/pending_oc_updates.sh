@@ -3,6 +3,14 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
+# Trap the SIGINT signal (Ctrl+C)
+trap ctrl_c INT
+
+function ctrl_c() {
+    echo "Stopping the script..."
+    exit 1
+}
+
 if [[ $# -ne  3 ]]; then
         echo "Usage: $0 BUCKETNAME CLUSTERNAME BASEDOMAIN"
         exit
@@ -19,8 +27,8 @@ EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availa
 export AWS_DEFAULT_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
 export IPI_REGION=$AWS_DEFAULT_REGION
 
-echo `date "+%Y/%m/%d %H:%M:%S"` "Copy container runtime config yaml"
-aws s3 cp s3://${BUCKETNAME}/container-runtime-config.yml /root/install-dir/container-runtime-config.yml --region ${IPI_REGION}
+echo `date "+%Y/%m/%d %H:%M:%S"` "Check container runtime config yaml"
+[ ! -f "/root/install-dir/container-runtime-config.yml" ] && echo "The container-runtime-config.yml could not be found. Refer to " && exit 1
 
 echo `date "+%Y/%m/%d %H:%M:%S"` "Sleeping before connecting to OCP Cluster using oc"
 sleep 10
@@ -35,7 +43,7 @@ echo `date "+%Y/%m/%d %H:%M:%S"` "VPC ID = " $VPCID
 wget -q https://raw.githubusercontent.com/ibm-mas/multicloud-bootstrap/main/aws/ocp-terraform/ocp/scripts/update-elb-timeout.sh -P /root/install-dir/
 chmod +x /root/install-dir/update-elb-timeout.sh
 
-oc patch configs.imageregistry.operator.openshift.io/cluster --type merge -p '{"spec":{"defaultRoute":true,"replicas":3}}'  -n openshift-image-registry --kubeconfig /root/install-dir/auth/kubeconfig
+oc patch configs.imageregistry.operator.openshift.io/cluster --type merge -p '{"spec":{"defaultRoute":true,"replicas":3}}' -n openshift-image-registry --kubeconfig /root/install-dir/auth/kubeconfig
 oc patch svc/image-registry -p '{"spec":{"sessionAffinity": "ClientIP"}}' -n openshift-image-registry --kubeconfig /root/install-dir/auth/kubeconfig
 oc patch configs.imageregistry.operator.openshift.io/cluster --type merge -p '{"spec":{"managementState":"Unmanaged"}}' --kubeconfig /root/install-dir/auth/kubeconfig
 echo `date "+%Y/%m/%d %H:%M:%S"` "Sleeping for 3 minutes before adding annotations to default-route"
