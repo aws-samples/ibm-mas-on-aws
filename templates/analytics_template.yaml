@@ -9,9 +9,9 @@ Resources:
       NodeType: "ra3.4xlarge"
       DBName: "dev"
       Encrypted: true
-      MasterUsername: #"admin"
+      MasterUsername: 
         Fn::Sub: "{{resolve:secretsmanager:${RedshiftMasterSecret}::username}}" 
-      MasterUserPassword: #"Admin!88"
+      MasterUserPassword: 
         Fn::Sub: "{{resolve:secretsmanager:${RedshiftMasterSecret}::password}}"
       ClusterParameterGroupName: 
        Ref: RedshiftClusterParameterGroup
@@ -33,11 +33,9 @@ Resources:
     Type: AWS::Redshift::ClusterSubnetGroup
     Properties:
       Description: Cluster subnet group
-      SubnetIds: # Here
-      - !ImportValue RedshiftSubnetGroupPrivateSubnet1 #subnet-0886ab874413d8480
+      SubnetIds: 
+      - !ImportValue RedshiftSubnetGroupPrivateSubnet1
       - !ImportValue RedshiftSubnetGroupPrivateSubnet2
-      # - !ImportValue RedshiftSubnetGroupPrivateSubnet3
-      # - subnet-0b13b911555a4b373
   RedshiftSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -52,7 +50,7 @@ Resources:
         FromPort: 5439
         ToPort: 5439
         IpProtocol: tcp
-      VpcId: !ImportValue VPCId #"vpc-09ca39f02abb0898f"
+      VpcId: !ImportValue VPCId
   RedshiftSGSelfReferenceIngress:
     Type: AWS::EC2::SecurityGroupIngress
     DependsOn: RedshiftSecurityGroup
@@ -64,17 +62,40 @@ Resources:
       ToPort: '65535'
       SourceSecurityGroupId:
         Ref: RedshiftSecurityGroup
-  SGRDSSourceIngress:
+  RedshiftSGRDSSGIngress:
     Type: AWS::EC2::SecurityGroupIngress
     DependsOn: RedshiftSecurityGroup
     Properties:
       GroupId:
         Ref: RedshiftSecurityGroup
       IpProtocol: tcp
-      FromPort: '5439'
-      ToPort: '5439'
-      SourceSecurityGroupId: !ImportValue RedshiftRDSSGId # sg-04d2ee5e3fe8c83ea
-        # Ref: VPC
+      FromPort: 5439
+      ToPort: 5439
+      SourceSecurityGroupId:
+        !ImportValue RedshiftRDSSGId 
+  SGRDSSourceIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    # DependsOn: RedshiftSecurityGroup
+    Properties:
+      GroupId:
+        !ImportValue RedshiftRDSSGId 
+      IpProtocol: tcp
+      FromPort: '0'
+      ToPort: '65535'
+      SourceSecurityGroupId: !ImportValue RedshiftRDSSGId 
+  SGRDSSourceEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    # DependsOn: 
+    #   - RedshiftSecurityGroup
+    #   - QuickSightSecurityGroup
+    Properties:
+      GroupId:
+        !ImportValue RedshiftRDSSGId
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      DestinationSecurityGroupId: 
+        !ImportValue RedshiftRDSSGId
   QuickSightSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -91,7 +112,7 @@ Resources:
         ToPort: 65535
         SourceSecurityGroupId:
          Ref: RedshiftSecurityGroup
-      VpcId: !ImportValue VPCId #"vpc-09ca39f02abb0898f"
+      VpcId: !ImportValue VPCId 
   RedshiftSGSelfReferenceIngressFromQS:
     Type: AWS::EC2::SecurityGroupIngress
     DependsOn: 
@@ -163,8 +184,6 @@ Resources:
             Resource: '*'
       Roles:
         - !Ref MasAnalyticsRole
-  
-  
   RedshiftMasterSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -178,6 +197,10 @@ Resources:
         - 
           Key: RedshiftCluster
           Value: Mas-Analytics
+        - 
+          Key: RedshiftQueryOwner
+          #Value: !Ref AWS::AccountId
+          Value: 'AROASWPMUMSCREM4BDBYG:Participant'
   SecretRedshiftAttachment:
     Type: AWS::SecretsManager::SecretTargetAttachment
     Properties:
@@ -195,16 +218,18 @@ Resources:
       CatalogId: !Ref AWS::AccountId
       ConnectionInput: 
         ConnectionProperties: 
-          JDBC_CONNECTION_URL: !ImportValue RDSJDBCEndpoint # "jdbc:sqlserver://masonaws.caqssya4hey8.ap-southeast-2.rds.amazonaws.com:1433;databaseName=maxdb80"
-          USERNAME: "admin"
-          PASSWORD: "o3<H=U9dK#Rq+v?|"
+          JDBC_CONNECTION_URL: !ImportValue RDSJDBCEndpoint 
+          USERNAME: 
+           !Join ['', ['{{resolve:secretsmanager:', Fn::ImportValue: !Sub RDSCredsSecretARN, ':SecretString:username}}' ]]
+          PASSWORD: 
+            !Join ['', ['{{resolve:secretsmanager:', Fn::ImportValue: !Sub RDSCredsSecretARN, ':SecretString:password}}' ]]
           JDBC_ENFORCE_SSL: False
         ConnectionType: JDBC
         PhysicalConnectionRequirements: 
-          AvailabilityZone: !Select [ 0, !GetAZs '' ] #"ap-southeast-2c"
+          AvailabilityZone: !Select [ 0, !GetAZs '' ] 
           SecurityGroupIdList: 
-            - !ImportValue RedshiftRDSSGId # sg-04d2ee5e3fe8c83ea
-          SubnetId: !ImportValue RedshiftSubnetGroupPrivateSubnet1 # subnet-0521aacc6dea9a015
+            - !ImportValue RedshiftRDSSGId 
+          SubnetId: !ImportValue RedshiftSubnetGroupPrivateSubnet1 
         Name: rds-cnn-cfn-01
   GlueRedshiftConnection:
     Type: AWS::Glue::Connection
@@ -213,9 +238,9 @@ Resources:
       ConnectionInput: 
         ConnectionProperties: 
           JDBC_CONNECTION_URL:  !Join [ "", ["jdbc:redshift://", !Sub "${RedshiftCluster.Endpoint.Address}:${RedshiftCluster.Endpoint.Port}", "/dev" ]]
-          USERNAME: #"admin"
+          USERNAME: 
             Fn::Sub: "{{resolve:secretsmanager:${RedshiftMasterSecret}::username}}" 
-          PASSWORD: #"Admin!88"
+          PASSWORD: 
             Fn::Sub: "{{resolve:secretsmanager:${RedshiftMasterSecret}::password}}"
           JDBC_ENFORCE_SSL: False
         ConnectionType: JDBC
@@ -223,8 +248,7 @@ Resources:
           AvailabilityZone: !Select [ 0, !GetAZs '' ]
           SecurityGroupIdList: 
             - Ref: RedshiftSecurityGroup
-            # - sg-06a4076899128a0e9
-          SubnetId:  !ImportValue RedshiftSubnetGroupPrivateSubnet1 # subnet-0b13b911555a4b373
+          SubnetId:  !ImportValue RedshiftSubnetGroupPrivateSubnet1 
         Name: redshift-cnn-cfn-01
   GlueDatabase:
     Type: AWS::Glue::Database
@@ -305,6 +329,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/assetmeter.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -322,6 +348,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/assetspec.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -339,6 +367,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/assetspechist.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -356,6 +386,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/invreserve.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -373,6 +405,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/jobplan.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -390,6 +424,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/locations.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -407,6 +443,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/relatedrecord.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -424,6 +462,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/woactivity.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -441,6 +481,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/workorder.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -458,6 +500,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/workorderspec.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -475,6 +519,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/woserviceaddress.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -492,6 +538,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wostatus.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -509,6 +557,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wplabor.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -526,6 +576,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wpmaterial.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -543,6 +595,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wpservice.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -560,6 +614,8 @@ Resources:
         Name: glueetl
         ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wptool.py"
       GlueVersion: 3.0
+      DefaultArguments:
+        "--TempDir": !Ref AnalyticsBucket
       ExecutionProperty:
         MaxConcurrentRuns: 1
       MaxRetries: 0
@@ -577,7 +633,6 @@ Resources:
     Properties:
       FunctionName: 'cfn-start-rds-crawler'
       ReservedConcurrentExecutions: 1
-      #KmsKeyArn: !ImportValue 'LambdaKMSKey'
       Code:
           ZipFile: |
             import os
@@ -590,6 +645,7 @@ Resources:
             # Import Boto 3 for AWS Glue
             import boto3
             client = boto3.client('glue')
+            bucket_name = os.environ['bucketName']
 
             # Variables for the job: 
             crawlerName = "cfn-rds-crawler-01"
@@ -602,13 +658,23 @@ Resources:
                         cfnresponse.send(event, context, status, {}, None)
                 return status 
 
+            def empty_bucket(masocpBucket,event, context):
+                if masocpBucket:
+                    try:
+                        s3 = boto3.resource('s3')
+                        bucket = s3.Bucket(masocpBucket)
+                        bucket.objects.all().delete()
+                    except Exception as e:
+                        logger.info("Exception while deleting files ->"+str(e))
+                        return exit_status(event, context, cfnresponse.FAILED)
+
             # Define Lambda function
             def lambda_handler(event, context):
-
                 if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
-                    logger.info("Cfn Delete event - no action - return Success")
-                    exit_status(event, context, cfnresponse.SUCCESS)
-
+                  # Empty Bucket before delete
+                  empty_bucket(bucket_name, event, context)
+                  logger.info("Cfn Delete event - no action - return Success")
+                  return exit_status(event, context, cfnresponse.SUCCESS)
                 logger.info('## INITIATED BY EVENT: ')
                 response = client.start_crawler(Name=crawlerName)
                 logger.info('## STARTED GLUE CRAWLER: ' + crawlerName)
@@ -618,12 +684,15 @@ Resources:
       Role: !GetAtt MasAnalyticsRole.Arn
       Runtime: python3.10
       Timeout: 600
+      Environment: 
+        Variables:
+          LOG_LEVEL: INFO
+          bucketName: !Ref AnalyticsBucket
   StartGlueJobsLambda:
     Type: 'AWS::Lambda::Function'
     Properties:
       FunctionName: 'cfn-start-redshift-load-jobs'
       ReservedConcurrentExecutions: 1
-      #KmsKeyArn: !ImportValue 'LambdaKMSKey'
       Code:
           ZipFile: |
             # Set up logging
@@ -638,6 +707,7 @@ Resources:
             # Import Boto 3 for AWS Glue
             import boto3
             client = boto3.client('glue')
+            bucket_name = os.environ['bucketName']
 
             def exit_status(event, context, status):
                 logger.info(f"exit_status({status})")
@@ -646,13 +716,25 @@ Resources:
                         logger.info("cfnresponse:" + status)
                         cfnresponse.send(event, context, status, {}, None)
                 return status 
+                
+            def empty_bucket(masocpBucket,event, context):
+                if masocpBucket:
+                    try:
+                        s3 = boto3.resource('s3')
+                        bucket = s3.Bucket(masocpBucket)
+                        bucket.objects.all().delete()
+                    except Exception as e:
+                        logger.info("Exception while deleting files ->"+str(e))
+                        return exit_status(event, context, cfnresponse.FAILED)
 
             # Define Lambda function
             def lambda_handler(event, context):
 
                 if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
-                    logger.info("Cfn Delete event - no action - return Success")
-                    exit_status(event, context, cfnresponse.SUCCESS)
+                  # Empty Bucket before delete
+                  empty_bucket(bucket_name, event, context)
+                  logger.info("Cfn Delete event - no action - return Success")
+                  return exit_status(event, context, cfnresponse.SUCCESS)
 
                 logger.info('## INITIATED BY EVENT: ')
 
@@ -726,14 +808,10 @@ Resources:
       Role: !GetAtt MasAnalyticsRole.Arn
       Runtime: python3.10
       Timeout: 600
-      # VpcConfig:
-      #   SecurityGroupIds: 
-      #     - Ref: RedshiftSecurityGroup
-      #   SubnetIds: 
-      #     - !ImportValue RedshiftSubnetGroupPrivateSubnet1
       Environment: 
         Variables:
           LOG_LEVEL: INFO
+          bucketName: !Ref AnalyticsBucket
   ### EventBridge to kick off StartGlueJobsLambda when Crawler finished running ###
   MyGlueCrawlerSuccessEvent:
     Type: AWS::Events::Rule
@@ -779,9 +857,6 @@ Outputs:
   GlueDatabaseName:
     Description: AWS Glue database name that stores RDS metadata
     Value: !Ref GlueDatabase
-  AnalyticsBucketName:
-    Description: Name of the main bucket
-    Value: !Ref AnalyticsBucket
   QuickSightSGId:
     Description: Name of the main bucket
     Value: !Ref QuickSightSecurityGroup
