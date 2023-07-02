@@ -858,5 +858,5 @@ Outputs:
     Description: AWS Glue database name that stores RDS metadata
     Value: !Ref GlueDatabase
   QuickSightSGId:
-    Description: Name of the main bucket
+    Description: SecurityGroup ID to be used for Amazon Quicksight private connection
     Value: !Ref QuickSightSecurityGroup
