@@ -326,7 +326,7 @@ Resources:
   ExistingVPCStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/3a329393b93e4f5cb7474c239ac61eb1/v1/ocp_existing_vpc_setup.yaml
+      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_existing_vpc_setup.yaml
       Parameters:
         VpcCIDR:  !Ref 01VpcCIDR
         PublicSubnet1CIDR: !Ref 01PublicSubnet1CIDR
@@ -356,7 +356,7 @@ Resources:
     Condition: IsDeployRDS
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/3a329393b93e4f5cb7474c239ac61eb1/v1/ocp_rds_optional_template.yaml
+      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_rds_optional_template.yaml
       Parameters:
         RDSDBInstanceClass:  !Ref 06RDSDBInstanceClass
         RDSAllocatedStorage: !Ref 06RDSAllocatedStorage
@@ -398,7 +398,7 @@ Resources:
     #Condition: IsDeploySeedBastion
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/3a329393b93e4f5cb7474c239ac61eb1/v1/ocp_seed_bastion_instance.yaml
+      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_seed_bastion_instance.yaml
       Parameters:
         OpenShiftType: !Ref 00OpenShiftType
         KeyName:  !Ref MASOCPKeyPair
