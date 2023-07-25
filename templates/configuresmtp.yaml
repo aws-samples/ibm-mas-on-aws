@@ -246,7 +246,7 @@ Outputs:
     Value: !Ref SMTPUserAccessKey
     Description: The access key ID for the IAM user
   SMTPEndpoint:
-    Value: !Sub email-smtp-${AWS::Region}-amazonaws.com
+    Value: !Sub email-smtp.${AWS::Region}.amazonaws.com
   SMTPPort:
     Value: '587'
   SMTPSecurityProtocol:

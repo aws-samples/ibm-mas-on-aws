@@ -5,7 +5,11 @@ AWSTemplateFormatVersion: '2010-09-09'
 Metadata:
   License: MIT-0
 Description: 'CFN Template to create a Seed EC2 instance with ansible collection installed'
+
 Parameters:
+  OpenShiftType:
+    Type: String
+    Description: OpenShift Type
   KeyName:
     Type: String
     Description: ARN of the Key Pair created in Parameter store
@@ -63,7 +67,6 @@ Parameters:
   LatestBastionAmiId:
     Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base'
-  
   KMSKey: 
     Type: String
     Description: KMS Key ARN to encrypt to RDS
@@ -72,7 +75,6 @@ Parameters:
     Description: Dead Letter SNS Topic  
 
 Resources:
-
   # Seed Instance Role used by the instance Profile
   SeedInstanceRole:
     Type: AWS::IAM::Role
@@ -121,8 +123,6 @@ Resources:
           sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
           sudo systemctl enable amazon-ssm-agent
           sudo systemctl start amazon-ssm-agent       
-          #aws s3 cp s3://${PreReqS3Bucket}/pull-secret ~/install-dir/pull-secret.txt --region ${AWS::Region}
-          #aws s3 cp s3://${PreReqS3Bucket}/entitlement.lic ~/install-dir/entitlement.lic --region ${AWS::Region}
           
           #Install git
           sudo yum install -y git
@@ -144,6 +144,12 @@ Resources:
           wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OCPClusterVersion}/openshift-install-linux.tar.gz -P /root/install-dir/
           tar -zxf /root/install-dir/openshift-install-linux.tar.gz -C /root/install-dir/
 
+          # Download the rosa CLI
+          wget https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz -O ~/install-dir/rosa-linux.tar.gz
+          mkdir -p ~/install-dir/rosa-install
+          tar xvf ~/install-dir/rosa-linux.tar.gz -C ~/install-dir/rosa-install
+          sudo mv ~/install-dir/rosa-install/rosa /usr/local/bin/
+          
           # Clone the ibm-mas-on-aws github repo
           git clone https://github.com/aws-samples/ibm-mas-on-aws /root/ibm-mas-on-aws
 
@@ -197,12 +203,6 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Enable RDP access via port 3389
-      #SecurityGroupIngress:
-      #- Description: "Allow traffic from RDPLocation as entered by user to Port 3389"
-      #  IpProtocol: tcp
-      #  FromPort: 3389
-      #  ToPort: 3389
-      #  CidrIp: !Ref 'RDPLocation'
       SecurityGroupEgress:
       - Description: "Allow traffic to Internet on Port 80"
         IpProtocol: tcp
@@ -334,7 +334,8 @@ Resources:
 
             def lambda_handler(event, context):
                 bucket_name = os.environ['bucketName']
-                region = os.environ['AWS_REGION']            
+                region = os.environ['AWS_REGION']
+                openShiftType = os.environ['openShiftType']          
                 #if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
                 #    logger.info("Cfn Delete event - no action - return Success")
                 #    return exit_status(event, context, cfnresponse.SUCCESS)
@@ -342,6 +343,9 @@ Resources:
                     # Empty Bucket before delete
                     empty_bucket(bucket_name, event, context)
                     logger.info("Cfn Delete event - no action - return Success")
+                    return exit_status(event, context, cfnresponse.SUCCESS)
+                if (openShiftType == 'ROSA'):
+                    logger.info("OpenShift Type selected is ROSA. install-config not required")
                     return exit_status(event, context, cfnresponse.SUCCESS)
 
                 # s3 client
@@ -436,6 +440,7 @@ Resources:
           hostedZoneId: !Ref HostedZoneID
           baseDomain: !Ref BaseDomain
           bucketName: !Ref PreReqS3Bucket
+          openShiftType: !Ref OpenShiftType
 
   # Custom resource to call OCP function
   CallCreateInstallConfig:

@@ -7,9 +7,13 @@ Metadata:
   AWS::CloudFormation::Interface:
       ParameterGroups:
           - Label:
-              default: Unique String to identify your CFN stack resources
+              default: OpenShift type - ROSA or OCP
             Parameters:
-                - 01UniqueStr
+                - 00OpenShiftType          
+          - Label:
+              default: IBM Entitlement Key 
+            Parameters:
+                - 07IBMEntitlementKey
           - Label:
               default: Deploy a VPC stack with Public and Private subnets to host the Private OCP cluster. 
             Parameters:
@@ -28,7 +32,7 @@ Metadata:
           - Label:
               default: Parameters to create a Seed and Bastion Host required to start installation 
             Parameters:
-                - 04DeploySeedBastion
+                #- 04DeploySeedBastion
                 - 05SeedInstanceType
                 - 05OCPClusterName
                 - 05OCPClusterVersion
@@ -44,25 +48,37 @@ Metadata:
                 - 06RDSMasterUsername
                 - 06MultiAZ
           - Label:
-              default: IBM Entitlement Key 
-            Parameters:
-                - 07IBMEntitlementKey
-          - Label:
               default: Define an DocDB cluster with 3 instances for the MAS Install
             Parameters:
+                - 08DeployDocDB
                 - 08DBClusterName
                 - 08MasterUser
                 - 08DBInstanceClass
-
+          - Label:
+              default: Enter the ROSA Machine, Service, Pod CIDR and host prefix
+            Parameters:
+                - 01ROSAMachineCIDR
+                - 01ROSAServiceCIDR
+                - 01ROSAPodCIDR
+                - 01ROSAHostPrefix
 Description: 'CFN Template to create a Seed EC2 instance with ansible collection installed'
 Conditions:
+  IsROSA: !Equals [!Ref 00OpenShiftType, 'ROSA']
+  IsOCP: !Equals [!Ref 00OpenShiftType, 'OCP']
   IsDeployPHZ: !Equals [!Ref 02DeployPHZ, 'true']
-  IsDeploySeedBastion: !Equals [!Ref 04DeploySeedBastion, 'true']
+  #IsDeploySeedBastion: !Equals [!Ref 04DeploySeedBastion, 'true']
   IsDeployRDS: !Equals [!Ref 06DeployRDS, 'true']
   IsIBMEntitlementKeyPresent: !Not [!Equals [!Ref 07IBMEntitlementKey, ""]]
   IsDeployDocDB: !Equals [!Ref 08DeployDocDB, 'true']
 
 Parameters:
+  00OpenShiftType:
+    Description: OpenShift Cluster type - OCP or ROSA ?
+    Type: String
+    Default: 'OCP'
+    AllowedValues:
+      - 'ROSA'
+      - 'OCP'
   01VpcCIDR:
     Description: Enter the IP range (CIDR notation) for VPC
     Type: String
@@ -91,10 +107,23 @@ Parameters:
     Description: Enter the IP range (CIDR notation)  for the private subnet in AZ C
     Type: String
     Default: 10.0.192.0/19
-  01UniqueStr:
-    Description: Unique string to tag your resources
+  01ROSAMachineCIDR:
+    Description: Enter the Machine CIDR
     Type: String
-    Default: ocp410
+    Default: 10.0.0.0/16
+  01ROSAServiceCIDR:
+    Description: Enter the Service CIDR
+    Type: String
+    Default: 172.30.0.0/16
+  01ROSAPodCIDR:
+    Description: Enter the POD CIDR
+    Type: String
+    Default: 10.128.0.0/14
+  01ROSAHostPrefix:
+    Description: Enter the Host prefix
+    Type: Number
+    Default: 23
+  
   02DeployPHZ:
     Description: Do you want to create the PHZ and associate it with the VPC that will be created ?
     Type: String
@@ -106,13 +135,13 @@ Parameters:
     Description: Enter the DNS name for PHZ
     Type: String
     Default: example.com
-  04DeploySeedBastion:
-    Description: Do you want to create the SeedInstance and the Bastion in the existing VPC ?
-    Type: String
-    Default: 'true'
-    AllowedValues:
-      - 'true'
-      - 'false'
+#  04DeploySeedBastion:
+#    Description: Do you want to create the SeedInstance and the Bastion in the existing VPC ?
+#    Type: String
+#    Default: 'true'
+#    AllowedValues:
+#      - 'true'
+#      - 'false'
   05SeedInstanceType:
     Description: Seed EC2 instance type
     Type: String
@@ -201,7 +230,7 @@ Parameters:
     Type: String
     NoEcho: true
     Default: 'REPLACE ME'
-    Description: IBM Entitlement Key to access the IBM Maximo Application images
+    Description: IBM Entitlement Key to access the IBM Maximo Application images - REPLACE ME
   08DeployDocDB:
     Description: Do you want to create the DocDB as part of the MAS install
     Type: String
@@ -238,7 +267,6 @@ Parameters:
       - db.r5.12xlarge
       - db.r5.24xlarge                             
     ConstraintDescription: "Instance type must be of the ones supported for the region. Please refer to: https://docs.aws.amazon.com/documentdb/latest/developerguide/db-instance-classes.html#db-instance-classes-by-region"  
-
 Resources:
   IBMEntitlementKeySecret:
     Condition: IsIBMEntitlementKeyPresent
@@ -294,12 +322,11 @@ Resources:
         PasswordLength: 16
         ExcludeCharacters: '"@/\'
 
-
   ## Stack to create the VPC resources required for an OCP Cluster   
   ExistingVPCStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_existing_vpc_setup.yaml
+      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/3a329393b93e4f5cb7474c239ac61eb1/v1/ocp_existing_vpc_setup.yaml
       Parameters:
         VpcCIDR:  !Ref 01VpcCIDR
         PublicSubnet1CIDR: !Ref 01PublicSubnet1CIDR
@@ -308,7 +335,8 @@ Resources:
         PrivateSubnet1CIDR: !Ref 01PrivateSubnet1CIDR
         PrivateSubnet2CIDR: !Ref 01PrivateSubnet2CIDR
         PrivateSubnet3CIDR: !Ref 01PrivateSubnet3CIDR
-        UniqueStr: !Ref 01UniqueStr
+        UniqueStr: !Ref AWS::StackId
+        OCPClusterName: !Ref 05OCPClusterName
 
   ## Stack to create a Private Hosted Zone and associate with the VPC
   PHZStack:
@@ -328,7 +356,7 @@ Resources:
     Condition: IsDeployRDS
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_rds_optional_template.yaml
+      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/3a329393b93e4f5cb7474c239ac61eb1/v1/ocp_rds_optional_template.yaml
       Parameters:
         RDSDBInstanceClass:  !Ref 06RDSDBInstanceClass
         RDSAllocatedStorage: !Ref 06RDSAllocatedStorage
@@ -355,23 +383,24 @@ Resources:
                   Fn::GetAtt:
                   - SeedBastionStack
                   - Outputs.BastionSecurityGroupId
-        UniqueStr: !Ref 01UniqueStr
+        UniqueStr: !Ref AWS::StackId
         VpcId:
                   Fn::GetAtt:
                   - ExistingVPCStack
                   - Outputs.outputVPC
         RDSKMSKey: !GetAtt KMSKey.Arn
         MultiAZ: !Ref 06MultiAZ
-
-
+        OCPClusterName: !Ref 05OCPClusterName
+        
   ## Stack to create a Bastion host and Seed Instance. Windows Bastion will be created in the Public Subnet and Seed Instance in a Private Subnet
   SeedBastionStack:
     ## DependsOn: PHZStack
-    Condition: IsDeploySeedBastion
+    #Condition: IsDeploySeedBastion
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_seed_bastion_instance.yaml
+      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/3a329393b93e4f5cb7474c239ac61eb1/v1/ocp_seed_bastion_instance.yaml
       Parameters:
+        OpenShiftType: !Ref 00OpenShiftType
         KeyName:  !Ref MASOCPKeyPair
         InstanceType: !Ref 05SeedInstanceType
         PreReqS3Bucket: !Ref 05PreReqS3Bucket
@@ -403,16 +432,14 @@ Resources:
                   Fn::GetAtt:
                   - ExistingVPCStack
                   - Outputs.outputPrivateSubnet3
-        HostedZoneID:
-                  Fn::GetAtt:
-                  - PHZStack
-                  - Outputs.PHZId
+        HostedZoneID: !If [ IsDeployPHZ, !GetAtt PHZStack.Outputs.PHZId, 'rosa' ]
         BaseDomain: !Ref 03PrivateHostedZone
         KMSKey: !GetAtt KMSKey.Arn
         DeadLetterSNSTopic: !Ref DeadLetterSNSTopic
+
   DocDBMongoStack:
     ## DependsOn: PHZStack
-    Condition: IsDeploySeedBastion
+    Condition: IsDeployDocDB
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_document_db.yaml
@@ -442,19 +469,33 @@ Resources:
 Outputs:
   01DeployClusterCommand:
     Description: Command to deploy an OCP cluster
+    Condition: IsOCP
     Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_cluster.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !Ref 03PrivateHostedZone, '"' ]]
+  01DeployROSAClusterCommand:
+    Description: Command to deploy a ROSA cluster
+    Condition: IsROSA
+    Value: !Join [ "", [ 'rosa create account-roles --region ', !Ref AWS::Region, ' --mode auto --yes && rosa create cluster --cluster-name ',!Ref 05OCPClusterName,' --sts --operator-roles-prefix ',!Ref 05OCPClusterName,'-', !Select [3 , !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId ] ] ] ]  , ' --multi-az --region ', !Ref AWS::Region, ' --version ' , !Ref 05OCPClusterVersion, ' --enable-autoscaling --min-replicas 3 --max-replicas 3 --compute-machine-type m6i.2xlarge --machine-cidr ', !Ref 01ROSAMachineCIDR, ' --service-cidr ', !Ref 01ROSAServiceCIDR, ' --pod-cidr ', !Ref 01ROSAPodCIDR, ' --host-prefix ', !Ref 01ROSAHostPrefix, ' --subnet-ids ', !GetAtt ExistingVPCStack.Outputs.outputPrivatePublicSubnetIds, ' --mode auto --yes ']]
+
+  01CreateROSAClusterAdmin:
+    Description: Command to create a cluster admin user to login to ROSA cluster
+    Condition: IsROSA
+    Value: !Join [ "", [ 'rosa create admin --cluster=',!Ref 05OCPClusterName,' --region ', !Ref AWS::Region]]
+
   02CreateEFSCommand:
     Description: Command to create an EFS
-    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/create_efs_rwx_sc.sh "', !Ref 05OCPClusterName , '" "', !Ref 03PrivateHostedZone, '"' ]]
+    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/create_efs_rwx_sc.sh "', !Ref 05OCPClusterName , '" ' ]]
   03FinishPendingOCUpdatesCommand:
+    Condition: IsOCP
     Description: Command to finish the pending oc updates
     Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/pending_oc_updates.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !Ref 03PrivateHostedZone, '"' ]]
   04DeployMASOperatorCommand:
+    Condition: IsDeployDocDB
     Description: Command to Deploy the MAS Operator on OpenShift Cluster
-    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_mascore.sh "', !Ref 05OCPClusterName , '" "', !Ref IBMEntitlementKeySecret,'" "',!GetAtt DocDBMongoStack.Outputs.MongoHosts, '" "',!GetAtt DocDBMongoStack.Outputs.DocDBSecretARN,'"' ]]
+    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_mascore.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !Ref IBMEntitlementKeySecret,'" "',!GetAtt DocDBMongoStack.Outputs.MongoHosts, '" "',!GetAtt DocDBMongoStack.Outputs.DocDBSecretARN,'"' ]]
   05GenMASJDBCCommand:
+    Condition: IsDeployRDS
     Description: Command to generate MAS JDBC config. If deploying RDS SQL using CFN stack, then get the JDBC Connection String from RDS Stack output
-    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/gen_mas_jdbc.sh maximo "MAS_JDBC_PASSWORD" "',!GetAtt RDSStack.Outputs.JDBCConnectionString, '' ]]
+    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/gen_mas_jdbc.sh maximo "MAS_JDBC_PASSWORD" "',!GetAtt RDSStack.Outputs.JDBCConnectionString, '"' ]]
   06AddMaximoManageCommand:
     Description: Command to deploy Maximo Manage on MAS. 
     Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/add_maximo_manage.sh "', !Ref IBMEntitlementKeySecret,'"', '' ]]
@@ -467,6 +508,7 @@ Outputs:
       - Outputs.JDBCConnectionString
   08PHZId:
     Description: Hosted Zone ID for the hosted zone created for the DNS Name
+    Condition: IsDeployPHZ
     Value:
       Fn::GetAtt:
       - PHZStack
@@ -505,6 +547,7 @@ Outputs:
       Name: RedshiftSubnetGroupPrivateSubnet3      
   0905outputRDSSecurityGroupId:
     Description: Security Group ID for RDS
+    Condition: IsDeployRDS
     Value:
       Fn::GetAtt:
       - RDSStack
@@ -513,6 +556,7 @@ Outputs:
       Name: RedshiftRDSSGId
   0906RDSJDBCEndpoint:
     Description: JDBC Endpoint for RDS
+    Condition: IsDeployRDS
     Value:
       Fn::GetAtt:
       - RDSStack

@@ -41,4 +41,8 @@ export ROLE_NAME=gencfg_jdbc && ansible-playbook ibm.mas_devops.run_role
 echo `date "+%Y/%m/%d %H:%M:%S"` "Sleeping for 10 before connecting using oc"
 sleep 10
 ## Apply the jdbc in the masdev-Manage workspace app scope
-oc create -f /root/install-dir/masconfig/jdbc.yml --kubeconfig /root/install-dir/auth/kubeconfig
+if [[ -f /root/install-dir/auth/kubeconfig ]]; then 
+    oc create -f /root/install-dir/masconfig/jdbc.yml --kubeconfig /root/install-dir/auth/kubeconfig
+else
+    oc create -f /root/install-dir/masconfig/jdbc.yml
+fi

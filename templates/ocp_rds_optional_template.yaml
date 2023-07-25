@@ -106,7 +106,10 @@ Parameters:
     AllowedValues:
     - 'true'
     - 'false'
-
+  OCPClusterName:
+    Type: String
+    Description: Name of the OCP Cluster that will be created
+    Default: 'masocp'    
 Resources:
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -193,7 +196,7 @@ Resources:
       MonitoringInterval: 60
       MonitoringRoleArn: !GetAtt EMIAMRole.Arn 
       Tags:
-      - Key:  !Join ['-',['kubernetes.io/cluster/masocp',!Ref UniqueStr]]
+      - Key:  !Join ['',['kubernetes.io/cluster/',!Ref OCPClusterName,'-',!Select [3 , !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId ] ] ] ]]]
         Value: "owned"
 
 Outputs:

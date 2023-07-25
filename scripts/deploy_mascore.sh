@@ -11,23 +11,38 @@ function ctrl_c() {
     exit 1
 }
 
-if [[ $# -ne 4 ]]; then
-    echo "Usage: $0 CLUSTER_NAME IBM_ENTITLEMENT_KEY_SECRET_ARN MONGO_HOSTS DOCDB_SECRET_ARN"
+if [[ $# -ne 5 ]]; then
+    echo "Usage: $0 BUCKETNAME CLUSTER_NAME IBM_ENTITLEMENT_SECRET_ARN MONGODB_HOSTS DOCDB_SECRET_ARN"
     exit
 fi
 echo `date "+%Y/%m/%d %H:%M:%S"` "Setting up the environment variables for MASCore Deployment"
 EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
 # The MongoDB role in ansible automation requires the AWS_REGION to be set
 export AWS_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
+# BUCKETNAME
+export BUCKETNAME=$1
 # CLUSTER NAME
-export CLUSTER_NAME=$1
+export CLUSTER_NAME=$2
+
+# Download entitlement.lic and pull-secret from S3
+[ ! -f "/root/install-dir/entitlement.lic" ] && aws s3 cp s3://${BUCKETNAME}/entitlement.lic /root/install-dir/entitlement.lic --region ${AWS_REGION}
+[ ! -f "/root/install-dir/pull-secret.txt" ] && aws s3 cp s3://${BUCKETNAME}/pull-secret /root/install-dir/pull-secret.txt --region ${AWS_REGION}
+
+# Download the Certificate bundles for specific AWS Regions
+# Note this is the certificate that will be used for RDS and Document DB
+if [[ ${AWS_REGION} == *gov* ]]; then DBCRT="https://truststore.pki.us-gov-west-1.rds.amazonaws.com/${AWS_REGION}/${AWS_REGION}-bundle.pem"; else DBCRT="https://truststore.pki.rds.amazonaws.com/${AWS_REGION}/${AWS_REGION}-bundle.pem"; fi
+wget -q ${DBCRT} -P /root/install-dir/
+[ ! -f "/root/install-dir/${AWS_REGION}-bundle.pem" ] && echo "The certificate bundle for the region not found. Ensure file is present in downloaded" && exit 1
+aws s3 cp /root/install-dir/${AWS_REGION}-bundle.pem s3://${BUCKETNAME}/${AWS_REGION}-bundle.pem --region ${AWS_REGION}
+
+
 # Entitlement Key secret ARN
-export IBM_ENTITLEMENT_SECRET_ARN=$2
+export IBM_ENTITLEMENT_SECRET_ARN=$3
 export IBM_ENTITLEMENT_KEY=`aws secretsmanager get-secret-value --secret-id $IBM_ENTITLEMENT_SECRET_ARN --region $AWS_REGION | jq -r ."SecretString"`
 # List of Mongo Hosts with Ports
-export MONGODB_HOSTS=$3
+export MONGODB_HOSTS=$4
 # Document DB username and password secret ARN
-export DOCDB_SECRET_ARN=$4
+export DOCDB_SECRET_ARN=$5
 export MONGODB_ADMIN_USERNAME=`aws secretsmanager get-secret-value --secret-id $DOCDB_SECRET_ARN --region $AWS_REGION | jq -r ."SecretString"|jq -r .username`
 export MONGODB_ADMIN_PASSWORD=`aws secretsmanager get-secret-value --secret-id $DOCDB_SECRET_ARN --region $AWS_REGION | jq -r ."SecretString"|jq -r .password`
 
@@ -114,7 +129,8 @@ else
         [ -z $MAS_USERNAME ] && exit 1
         export MAS_ADMIN_URL=`oc get route ${MAS_INSTANCE_ID}-admin -n mas-${MAS_INSTANCE_ID}-core -o yaml | yq -r .status.ingress[0].host`
         [ -z $MAS_ADMIN_URL ] && exit 1
-        export INFRAID=`cat /root/install-dir/metadata.json  | jq -r .infraID`"-mas-creds"
+        export INFRAID=$CLUSTER_NAME"-mas-creds"
+        [ -f "/root/install-dir/metadata.json" ] && export INFRAID=`cat /root/install-dir/metadata.json  | jq -r .infraID`"-mas-creds"
         echo `date "+%Y/%m/%d %H:%M:%S"` "Creating secret for MAS Admin console in Secrets Manager  .........  " $INFRAID
         aws secretsmanager create-secret \
         --name $INFRAID \
