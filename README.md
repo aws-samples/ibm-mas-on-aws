@@ -15,9 +15,9 @@ The following set of instructions have been tested with the following Product ve
 
 ## Deploying the AWS infrastructure (using AWS CloudFormation)
 To deploy the AWS infrastructure that hosts the Private OCP cluster in a AWS Commercial cloud region, Click on 
-<a href="https://console.aws.amazon.com/cloudformation/home?#/stacks/new?&templateURL=https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/mainTemplate.yaml">Launch Template in Commercial Cloud</a>
+<a href="https://console.aws.amazon.com/cloudformation/home?#/stacks/new?&templateURL=https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/78554b88-0cd8-45a1-b9ee-2c1078aa6995/mainTemplate.yaml">Launch Template in Commercial Cloud</a>
 To deploy in a AWS GovCloud(US) cloud region, Click on 
-<a href="https://console.amazonaws-us-gov.com/cloudformation/home?#/stacks/new?&templateURL=https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/mainTemplate.yaml">Launch Template in AWS GovCloud(US)</a>
+<a href="https://console.amazonaws-us-gov.com/cloudformation/home?#/stacks/new?&templateURL=https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/78554b88-0cd8-45a1-b9ee-2c1078aa6995/mainTemplate.yaml">Launch Template in AWS GovCloud(US)</a>
 
 The CFN stack along with all the nested stacks deploys the below architecture 
 ![infra-deployed-by-cfnstack](./images/infra-deployed-by-cfnstack.png)

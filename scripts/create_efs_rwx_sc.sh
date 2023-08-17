@@ -64,13 +64,53 @@ if [[ -f /root/install-dir/auth/kubeconfig ]]; then
     sed 's/rosa/ocp/g;s/{{ efs_id }}/'${EFSID}'/g;s/{{ efs_unique_id }}/'${CLUSTER_NAME}'/g' /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/efs-csi-storage-class.yml.j2 > /root/install-dir/efs-csi-storage-class.yml
     oc apply -f /root/install-dir/efs-csi-storage-class.yml --kubeconfig /root/install-dir/auth/kubeconfig
 else
-    echo `date "+%Y/%m/%d %H:%M:%S"` "Creating Storage class in ROSA cluster"
+    echo `date "+%Y/%m/%d %H:%M:%S"` "Creating Storage class in ROSA - STS cluster"
     oc apply -f /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/operator-group.yml.j2 
     sed 's/{{ aws_efs_default_channel }}/stable/g;s/{{ aws_efs_source }}/redhat-operators/g;s/{{ aws_efs_source_namespace }}/openshift-marketplace/g' /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/efs-csi-subscription.yml.j2 > /root/install-dir/efs-csi-subscription.yml
-    # Installation of the AWS EFS CSI Driver Operator creates an IAM user and also a secret aws-efs-cloud-credentials under namespace openshift-cluster-csi-drivers with the IAM accesskey and IAM secret 
+    # Install the AWS EFS CSI Operator from Redhat
     oc apply -f /root/install-dir/efs-csi-subscription.yml
+    # Installation of the AWS EFS CSI Driver Operator with STS has additional steps (https://docs.openshift.com/rosa/storage/container_storage_interface/osd-persistent-storage-aws-efs-csi.html)
+    export CCOPODNAME=`oc get pod -n openshift-cloud-credential-operator -l app=cloud-credential-operator -o jsonpath='{.items[0].metadata.name}{"\n"}'`
+    oc cp -c cloud-credential-operator openshift-cloud-credential-operator/$CCOPODNAME:/usr/bin/ccoctl /root/install-dir/ccoctl
+    chmod 755 /root/install-dir/ccoctl
+    # Get the OIDC ARN from based on 
+    export OIDC_ARN=`aws iam list-open-id-connect-providers | jq -r '.OpenIDConnectProviderList[].Arn' | grep \`rosa describe cluster --cluster ${CLUSTER_NAME} --region ${IPI_REGION} -o json | jq -r .id\``
+    mkdir -p /root/install-dir/credrequests
+    cat > /root/install-dir/credrequests/CredentialsRequest.yaml << EOF
+apiVersion: cloudcredential.openshift.io/v1
+kind: CredentialsRequest
+metadata:
+  name: openshift-aws-efs-csi-driver
+  namespace: openshift-cloud-credential-operator
+spec:
+  providerSpec:
+    apiVersion: cloudcredential.openshift.io/v1
+    kind: AWSProviderSpec
+    statementEntries:
+    - action:
+      - elasticfilesystem:*
+      effect: Allow
+      resource: '*'
+  secretRef:
+    name: aws-efs-cloud-credentials
+    namespace: openshift-cluster-csi-drivers
+  serviceAccountNames:
+  - aws-efs-csi-driver-operator
+  - aws-efs-csi-driver-controller-sa
+EOF
+    /root/install-dir/ccoctl aws create-iam-roles --name=${CLUSTER_NAME} --region=${IPI_REGION} --credentials-requests-dir=/root/install-dir/credrequests/ --identity-provider-arn=$OIDC_ARN --output-dir /root/install-dir/
+    if [[ -d /root/install-dir/manifests ]]; then
+        oc create -f /root/install-dir/manifests/openshift-cluster-csi-drivers-aws-efs-cloud-credentials-credentials.yaml
+    fi
     oc apply -f /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/efs-csi-driver.yml.j2 
     sed 's/{{ efs_id }}/'${EFSID}'/g;s/{{ efs_unique_id }}/'${CLUSTER_NAME}'/g' /root/.ansible/collections/ansible_collections/ibm/mas_devops/roles/ocp_efs/templates/efs-csi-storage-class.yml.j2 > /root/install-dir/efs-csi-storage-class.yml
+    # For STS - Do not create a storage class until AWSEFSDriverNodeServiceControllerAvailable and AWSEFSDriverControllerServiceControllerAvailable change to a True status
+    while [[ `oc get clustercsidriver -o json | jq -r '.items[]| select (.metadata.name == "efs.csi.aws.com") | .status.conditions[] | select (.type == "AWSEFSDriverNodeServiceControllerAvailable" ) | .status '` != "True" || `oc get clustercsidriver -o json | jq -r '.items[]| select (.metadata.name == "efs.csi.aws.com") | .status.conditions[] | select (.type == "AWSEFSDriverControllerServiceControllerAvailable" ) | .status '` != "True" ]]; do 
+        echo `date "+%Y/%m/%d %H:%M:%S"` "Ignore jq error. Waiting for AWSEFSDriverNodeServiceControllerAvailable and  AWSEFSDriverControllerServiceControllerAvailable to turn to True. Sleep for 5 seconds"
+        sleep 5; 
+    done
+    # Sleep for further 60 mins before creating the EFS storage class when using STS
+    sleep 60
     oc apply -f /root/install-dir/efs-csi-storage-class.yml 
 fi
 exit 0

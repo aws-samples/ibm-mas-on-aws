@@ -312,7 +312,7 @@ Resources:
   #   Properties:
   #     Command:
   #       Name: glueetl
-  #       ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/asset.py"
+  #       ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/asset.py"
   #     # DefaultArguments:
   #     #   "--job-bookmark-option": "job-bookmark-enable"
   #     GlueVersion: 3.0
@@ -331,7 +331,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/assetmeter.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/assetmeter.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -350,7 +350,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/assetspec.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/assetspec.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -369,7 +369,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/assetspechist.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/assetspechist.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -388,7 +388,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/invreserve.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/invreserve.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -407,7 +407,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/jobplan.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/jobplan.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -426,7 +426,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/locations.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/locations.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -445,7 +445,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/relatedrecord.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/relatedrecord.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -464,7 +464,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/woactivity.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/woactivity.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -483,7 +483,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/workorder.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/workorder.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -502,7 +502,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/workorderspec.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/workorderspec.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -521,7 +521,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/woserviceaddress.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/woserviceaddress.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -540,7 +540,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wostatus.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/wostatus.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -559,7 +559,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wplabor.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/wplabor.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -578,7 +578,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wpmaterial.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/wpmaterial.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -597,7 +597,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wpservice.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/wpservice.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket
@@ -616,7 +616,7 @@ Resources:
     Properties:
       Command:
         Name: glueetl
-        ScriptLocation: "s3://ee-assets-prod-us-east-1/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/wptool.py"
+        ScriptLocation: "s3://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee/78554b88-0cd8-45a1-b9ee-2c1078aa6995/analytics/wptool.py"
       GlueVersion: 3.0
       DefaultArguments:
         "--TempDir": !Ref AnalyticsBucket

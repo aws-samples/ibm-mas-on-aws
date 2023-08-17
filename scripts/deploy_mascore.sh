@@ -10,9 +10,13 @@ function ctrl_c() {
     echo "Stopping the script..."
     exit 1
 }
+if [[ $# -lt 3 ]]; then
+        echo "Usage: $0 BUCKETNAME CLUSTER_NAME IBM_ENTITLEMENT_SECRET_ARN [MONGODB_HOSTS] [DOCDB_SECRET_ARN]"
+        exit
+fi
 
-if [[ $# -ne 5 ]]; then
-    echo "Usage: $0 BUCKETNAME CLUSTER_NAME IBM_ENTITLEMENT_SECRET_ARN MONGODB_HOSTS DOCDB_SECRET_ARN"
+if [[ $# -gt 5 ]]; then
+    echo "Usage: $0 BUCKETNAME CLUSTER_NAME IBM_ENTITLEMENT_SECRET_ARN [MONGODB_HOSTS] [DOCDB_SECRET_ARN]"
     exit
 fi
 echo `date "+%Y/%m/%d %H:%M:%S"` "Setting up the environment variables for MASCore Deployment"
@@ -39,12 +43,15 @@ aws s3 cp /root/install-dir/${AWS_REGION}-bundle.pem s3://${BUCKETNAME}/${AWS_RE
 # Entitlement Key secret ARN
 export IBM_ENTITLEMENT_SECRET_ARN=$3
 export IBM_ENTITLEMENT_KEY=`aws secretsmanager get-secret-value --secret-id $IBM_ENTITLEMENT_SECRET_ARN --region $AWS_REGION | jq -r ."SecretString"`
-# List of Mongo Hosts with Ports
-export MONGODB_HOSTS=$4
-# Document DB username and password secret ARN
-export DOCDB_SECRET_ARN=$5
-export MONGODB_ADMIN_USERNAME=`aws secretsmanager get-secret-value --secret-id $DOCDB_SECRET_ARN --region $AWS_REGION | jq -r ."SecretString"|jq -r .username`
-export MONGODB_ADMIN_PASSWORD=`aws secretsmanager get-secret-value --secret-id $DOCDB_SECRET_ARN --region $AWS_REGION | jq -r ."SecretString"|jq -r .password`
+
+if [[ ! -z $4 ]]; then
+        # List of Mongo Hosts with Ports
+        export MONGODB_HOSTS=$4
+        # Document DB username and password secret ARN
+        export DOCDB_SECRET_ARN=$5
+        export MONGODB_ADMIN_USERNAME=`aws secretsmanager get-secret-value --secret-id $DOCDB_SECRET_ARN --region $AWS_REGION | jq -r ."SecretString"|jq -r .username`
+        export MONGODB_ADMIN_PASSWORD=`aws secretsmanager get-secret-value --secret-id $DOCDB_SECRET_ARN --region $AWS_REGION | jq -r ."SecretString"|jq -r .password`
+fi
 
 export MAS_INSTANCE_ID=masinst1
 export MAS_CONFIG_DIR=/root/install-dir/masconfig
@@ -64,11 +71,11 @@ export UDS_CONTACT_LASTNAME=$UDS_CONTACT_EMAIL
 #Default Storage class
 export DEFAULT_SC=`oc get sc | grep default | awk '{print $1}'`
 #Set the EFS as storage class for Prometheus Storage class, all else would be default
-export PROMETHEUS_ALERTMGR_STORAGE_CLASS="efs"
+export PROMETHEUS_ALERTMGR_STORAGE_CLASS="efs"$CLUSTER_NAME
 export PROMETHEUS_STORAGE_CLASS=$DEFAULT_SC
 export PROMETHEUS_USERWORKLOAD_STORAGE_CLASS=$DEFAULT_SC
 export GRAFANA_INSTANCE_STORAGE_CLASS=$DEFAULT_SC
-#export MONGODB_STORAGE_CLASS="gp2" # Required if MongoDB Storage class is community
+[ -z $4 ] && export MONGODB_STORAGE_CLASS=$DEFAULT_SC # Required if MongoDB Storage class is community
 export UDS_STORAGE_CLASS=$DEFAULT_SC
 
 echo `date "+%Y/%m/%d %H:%M:%S"` "Installing the MAS Operator on the OCP Cluster"
@@ -81,13 +88,13 @@ export ROLE_NAME=cert_manager && ansible-playbook ibm.mas_devops.run_role
 # Check if the Certificate bundles for specific AWS Region is downloaded
 [ ! -f "/root/install-dir/${AWS_REGION}-bundle.pem" ] && echo "DB certificate not present. Please check install-dir folder" && exit 1
 
-export MONGODB_PROVIDER=aws
-export SLS_MONGO_RETRYWRITES=false
+[ ! -z $4 ] && export MONGODB_PROVIDER=aws
+[ ! -z $4 ] && export SLS_MONGO_RETRYWRITES=false
 
-export MONGODB_CA_PEM_LOCAL_FILE=/root/install-dir/${AWS_REGION}-bundle.pem
-export MONGODB_RETRY_WRITES=$SLS_MONGO_RETRYWRITES
-export ROLE_NAME=gencfg_mongo && ansible-playbook ibm.mas_devops.run_role
-
+[ ! -z $4 ] && export MONGODB_CA_PEM_LOCAL_FILE=/root/install-dir/${AWS_REGION}-bundle.pem
+[ ! -z $4 ] && export MONGODB_RETRY_WRITES=$SLS_MONGO_RETRYWRITES
+[ ! -z $4 ] && export ROLE_NAME=gencfg_mongo && ansible-playbook ibm.mas_devops.run_role
+[ -z $4 ] && ROLE_NAME=mongodb && ansible-playbook ibm.mas_devops.run_role
 #SLS
 [ ! -f "/root/install-dir/masconfig/mongo-mongoce.yml" ] && echo "Mongo mas config file must be present" && exit 1
 export SLS_NAMESPACE=ibm-sls

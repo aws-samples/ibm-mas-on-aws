@@ -15,6 +15,15 @@ Metadata:
             Parameters:
                 - 07IBMEntitlementKey
           - Label:
+              default: Define a Private Hosted Zone that will host the OCP cluster 
+            Parameters:
+                - 02DeployPHZ
+                - 03HostedZoneDNSName
+          - Label:
+              default: Cluster Visibility (Public or Private). When Public an External AWS Account ID that will assume role to Participant account to read the NS records of Route53 Public HostedZone
+            Parameters:
+                - ClusterVisibility
+          - Label:
               default: Deploy a VPC stack with Public and Private subnets to host the Private OCP cluster. 
             Parameters:
                 - 01VpcCIDR
@@ -24,11 +33,6 @@ Metadata:
                 - 01PrivateSubnet1CIDR
                 - 01PrivateSubnet2CIDR
                 - 01PrivateSubnet3CIDR
-          - Label:
-              default: Define a Private Hosted Zone that will host the OCP cluster 
-            Parameters:
-                - 02DeployPHZ
-                - 03PrivateHostedZone
           - Label:
               default: Parameters to create a Seed and Bastion Host required to start installation 
             Parameters:
@@ -70,6 +74,7 @@ Conditions:
   IsDeployRDS: !Equals [!Ref 06DeployRDS, 'true']
   IsIBMEntitlementKeyPresent: !Not [!Equals [!Ref 07IBMEntitlementKey, ""]]
   IsDeployDocDB: !Equals [!Ref 08DeployDocDB, 'true']
+  IsPrivate: !Equals [!Ref ClusterVisibility, 'Private']
 
 Parameters:
   00OpenShiftType:
@@ -123,7 +128,6 @@ Parameters:
     Description: Enter the Host prefix
     Type: Number
     Default: 23
-  
   02DeployPHZ:
     Description: Do you want to create the PHZ and associate it with the VPC that will be created ?
     Type: String
@@ -267,6 +271,14 @@ Parameters:
       - db.r5.12xlarge
       - db.r5.24xlarge                             
     ConstraintDescription: "Instance type must be of the ones supported for the region. Please refer to: https://docs.aws.amazon.com/documentdb/latest/developerguide/db-instance-classes.html#db-instance-classes-by-region"  
+  ClusterVisibility:
+    Description: If being installed in an AWS WorshopStudio this will be set to WorkshopStudio and this helps create a Public Hosted Zone
+    Type: String
+    Default: 'Private'
+    AllowedValues:
+      - 'Private'
+      - 'WorkshopStudio'
+
 Resources:
   IBMEntitlementKeySecret:
     Condition: IsIBMEntitlementKeyPresent
@@ -326,7 +338,7 @@ Resources:
   ExistingVPCStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_existing_vpc_setup.yaml
+      TemplateURL: https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/78554b88-0cd8-45a1-b9ee-2c1078aa6995/ocp_existing_vpc_setup.yaml
       Parameters:
         VpcCIDR:  !Ref 01VpcCIDR
         PublicSubnet1CIDR: !Ref 01PublicSubnet1CIDR
@@ -339,13 +351,16 @@ Resources:
         OCPClusterName: !Ref 05OCPClusterName
 
   ## Stack to create a Private Hosted Zone and associate with the VPC
-  PHZStack:
+   PHZStack:
     Condition: IsDeployPHZ
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_phz_create.yaml
+      TemplateURL: https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/78554b88-0cd8-45a1-b9ee-2c1078aa6995/ocp_phz_create.yaml
       Parameters:
-        PrivateHostedZone:  !Ref 03PrivateHostedZone
+        HostedZoneDNSName:  !Ref 03HostedZoneDNSName
+        ClusterVisibility: !Ref ClusterVisibility    
+        KMSKey: !GetAtt KMSKey.Arn
+        DeadLetterSNSTopic: !Ref DeadLetterSNSTopic            
         openshiftVPCId:
                   Fn::GetAtt:
                   - ExistingVPCStack
@@ -356,7 +371,7 @@ Resources:
     Condition: IsDeployRDS
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_rds_optional_template.yaml
+      TemplateURL: https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/78554b88-0cd8-45a1-b9ee-2c1078aa6995/ocp_rds_optional_template.yaml
       Parameters:
         RDSDBInstanceClass:  !Ref 06RDSDBInstanceClass
         RDSAllocatedStorage: !Ref 06RDSAllocatedStorage
@@ -394,11 +409,9 @@ Resources:
         
   ## Stack to create a Bastion host and Seed Instance. Windows Bastion will be created in the Public Subnet and Seed Instance in a Private Subnet
   SeedBastionStack:
-    ## DependsOn: PHZStack
-    #Condition: IsDeploySeedBastion
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_seed_bastion_instance.yaml
+      TemplateURL: https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/78554b88-0cd8-45a1-b9ee-2c1078aa6995/ocp_seed_bastion_instance.yaml
       Parameters:
         OpenShiftType: !Ref 00OpenShiftType
         KeyName:  !Ref MASOCPKeyPair
@@ -420,29 +433,15 @@ Resources:
                   - ExistingVPCStack
                   - Outputs.outputVPC
         VpcCIDR:  !Ref 01VpcCIDR
-        PrivateSubnet1:
-                  Fn::GetAtt:
-                  - ExistingVPCStack
-                  - Outputs.outputPrivateSubnet1         
-        PrivateSubnet2:
-                  Fn::GetAtt:
-                  - ExistingVPCStack
-                  - Outputs.outputPrivateSubnet2
-        PrivateSubnet3:
-                  Fn::GetAtt:
-                  - ExistingVPCStack
-                  - Outputs.outputPrivateSubnet3
-        HostedZoneID: !If [ IsDeployPHZ, !GetAtt PHZStack.Outputs.PHZId, 'rosa' ]
-        BaseDomain: !Ref 03PrivateHostedZone
+        Subnets: !If [ IsPrivate, !Join [ ",", [ !GetAtt  ExistingVPCStack.Outputs.outputPrivateSubnet1, !GetAtt  ExistingVPCStack.Outputs.outputPrivateSubnet2 , !GetAtt  ExistingVPCStack.Outputs.outputPrivateSubnet3 ]], !GetAtt ExistingVPCStack.Outputs.outputPrivatePublicSubnetIds ]   
         KMSKey: !GetAtt KMSKey.Arn
         DeadLetterSNSTopic: !Ref DeadLetterSNSTopic
-
+        ExternalInternalOCP:   !If [ IsPrivate, 'Internal', 'External' ]  
   DocDBMongoStack:
-    ## DependsOn: PHZStack
     Condition: IsDeployDocDB
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/ocp_document_db.yaml
+      TemplateURL: https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/78554b88-0cd8-45a1-b9ee-2c1078aa6995/ocp_document_db.yaml
       Parameters:
         DBClusterName:  !Ref 08DBClusterName
         MasterUser: !Ref 08MasterUser
@@ -470,13 +469,13 @@ Outputs:
   01DeployClusterCommand:
     Description: Command to deploy an OCP cluster
     Condition: IsOCP
-    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_cluster.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !Ref 03PrivateHostedZone, '"' ]]
+    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_cluster.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !If [ IsDeployPHZ, !GetAtt PHZStack.Outputs.DomainName, !Ref 03HostedZoneDNSName ], '"' ]]
   01DeployROSAClusterCommand:
     Description: Command to deploy a ROSA cluster
     Condition: IsROSA
     Value: !Join [ "", [ 'rosa create account-roles --region ', !Ref AWS::Region, ' --mode auto --yes && rosa create cluster --cluster-name ',!Ref 05OCPClusterName,' --sts --operator-roles-prefix ',!Ref 05OCPClusterName,'-', !Select [3 , !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId ] ] ] ]  , ' --multi-az --region ', !Ref AWS::Region, ' --version ' , !Ref 05OCPClusterVersion, ' --enable-autoscaling --min-replicas 3 --max-replicas 3 --compute-machine-type m6i.2xlarge --machine-cidr ', !Ref 01ROSAMachineCIDR, ' --service-cidr ', !Ref 01ROSAServiceCIDR, ' --pod-cidr ', !Ref 01ROSAPodCIDR, ' --host-prefix ', !Ref 01ROSAHostPrefix, ' --subnet-ids ', !GetAtt ExistingVPCStack.Outputs.outputPrivatePublicSubnetIds, ' --mode auto --yes ']]
 
-  01CreateROSAClusterAdmin:
+  01ROSAClusterAdmin:
     Description: Command to create a cluster admin user to login to ROSA cluster
     Condition: IsROSA
     Value: !Join [ "", [ 'rosa create admin --cluster=',!Ref 05OCPClusterName,' --region ', !Ref AWS::Region]]
@@ -487,11 +486,10 @@ Outputs:
   03FinishPendingOCUpdatesCommand:
     Condition: IsOCP
     Description: Command to finish the pending oc updates
-    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/pending_oc_updates.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !Ref 03PrivateHostedZone, '"' ]]
+    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/pending_oc_updates.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !If [ IsDeployPHZ, !GetAtt PHZStack.Outputs.DomainName, !Ref 03HostedZoneDNSName ], '"' ]]
   04DeployMASOperatorCommand:
-    Condition: IsDeployDocDB
     Description: Command to Deploy the MAS Operator on OpenShift Cluster
-    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_mascore.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !Ref IBMEntitlementKeySecret,'" "',!GetAtt DocDBMongoStack.Outputs.MongoHosts, '" "',!GetAtt DocDBMongoStack.Outputs.DocDBSecretARN,'"' ]]
+    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_mascore.sh "', !Ref 05PreReqS3Bucket, '" "', !Ref 05OCPClusterName , '" "', !Ref IBMEntitlementKeySecret,'" "',!If [ IsDeployDocDB, !GetAtt DocDBMongoStack.Outputs.MongoHosts, ''], '" "',!If [ IsDeployDocDB, !GetAtt DocDBMongoStack.Outputs.DocDBSecretARN, ''],'"' ]]
   05GenMASJDBCCommand:
     Condition: IsDeployRDS
     Description: Command to generate MAS JDBC config. If deploying RDS SQL using CFN stack, then get the JDBC Connection String from RDS Stack output
@@ -499,6 +497,9 @@ Outputs:
   06AddMaximoManageCommand:
     Description: Command to deploy Maximo Manage on MAS. 
     Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/add_maximo_manage.sh "', !Ref IBMEntitlementKeySecret,'"', '' ]]
+  07AddMVICommand:
+    Description: Command to deploy Maximo Visual Inspection on MAS. 
+    Value: !Join [ "", [ '/root/ibm-mas-on-aws/scripts/deploy_mvi.sh "', !Ref 05OCPClusterName , '" "', !Ref IBMEntitlementKeySecret,'"', '' ]]
   07JDBCConnectionString:
     Condition: IsDeployRDS
     Description: JDBC connection string to connect Maximo Manage to RDS. Remember to create a Database after the DB instance is ready
@@ -508,7 +509,7 @@ Outputs:
       - Outputs.JDBCConnectionString
   08PHZId:
     Description: Hosted Zone ID for the hosted zone created for the DNS Name
-    Condition: IsDeployPHZ
+    Condition: IsDeployPHZ    
     Value:
       Fn::GetAtt:
       - PHZStack

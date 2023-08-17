@@ -49,21 +49,9 @@ Parameters:
   VpcCIDR:
     Type: String
     Description: VPC CIDR for the Existing VPC
-  PrivateSubnet1:
+  Subnets:
     Type: String
-    Description: Private Subnet 1 in VPC
-  PrivateSubnet2:
-    Type: String
-    Description: Private Subnet 2 in VPC
-  PrivateSubnet3:
-    Type: String
-    Description: Private Subnet 3 in VPC
-  HostedZoneID:
-    Type: String
-    Description: HostedZoneId for the Private Hosted Zone
-  BaseDomain:
-    Type: String
-    Description: BaseDomain for the Private Hosted Zone
+    Description: For standard public clusters, public and private subnets or for private clusters private subnets
   LatestBastionAmiId:
     Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base'
@@ -73,7 +61,10 @@ Parameters:
   DeadLetterSNSTopic: 
     Type: String
     Description: Dead Letter SNS Topic  
-
+  ExternalInternalOCP:
+    Type: String
+    Description: If WorkshopStudio then this is External or Internal
+    Default: Internal
 Resources:
   # Seed Instance Role used by the instance Profile
   SeedInstanceRole:
@@ -150,6 +141,11 @@ Resources:
           tar xvf ~/install-dir/rosa-linux.tar.gz -C ~/install-dir/rosa-install
           sudo mv ~/install-dir/rosa-install/rosa /usr/local/bin/
           
+          #Download the ccoctl cli
+          wget https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/${OCPClusterVersion}/ccoctl-linux-${OCPClusterVersion}.tar.gz -O ~/install-dir/ccoctl-linux-${OCPClusterVersion}.tar.gz
+          tar xvf ~/install-dir/ccoctl-linux-${OCPClusterVersion}.tar.gz -C ~/install-dir/
+          sudo mv ~/install-dir/ccoctl /usr/local/bin/
+
           # Clone the ibm-mas-on-aws github repo
           git clone https://github.com/aws-samples/ibm-mas-on-aws /root/ibm-mas-on-aws
 
@@ -331,17 +327,40 @@ Resources:
                         logger.info("Exception while deleting files ->"+str(e))
                         return exit_status(event, context, cfnresponse.FAILED)
 
+            def clear_account(instanceId):
+                try:
+                    client = boto3.client('ssm')
+                    clusterName = os.environ['clusterName']
+                    response = client.send_command(
+                        InstanceIds=[instanceId],
+                        DocumentName='AWS-RunShellScript',
+                        Parameters={
+                            'commands':[
+                                'sudo su -',
+                                '/root/ibm-mas-on-aws/scripts/delete_rwx_efs.sh "{0}"'.format(clusterName), 
+                                '/root/install-dir/openshift-install destroy cluster --dir /root/install-dir/ --log-level=debug'
+                            ],
+                            'executionTimeout': [
+                                '3600'
+                            ],
+                            'workingDirectory': [
+                                '/root'
+                            ]
+                        }
+                    )
+                except Exception as e:
+                    logger.error("Error sending command to Ec2 Instance"+str(e))
 
             def lambda_handler(event, context):
                 bucket_name = os.environ['bucketName']
                 region = os.environ['AWS_REGION']
-                openShiftType = os.environ['openShiftType']          
-                #if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
-                #    logger.info("Cfn Delete event - no action - return Success")
-                #    return exit_status(event, context, cfnresponse.SUCCESS)
+                openShiftType = os.environ['openShiftType']
+                instanceId = os.environ['instanceId']
+                externalInternalOCP = os.environ['externalInternalOCP']
                 if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
                     # Empty Bucket before delete
                     empty_bucket(bucket_name, event, context)
+                    clear_account(instanceId)
                     logger.info("Cfn Delete event - no action - return Success")
                     return exit_status(event, context, cfnresponse.SUCCESS)
                 if (openShiftType == 'ROSA'):
@@ -354,18 +373,18 @@ Resources:
                 bucket_name = os.environ['bucketName']
                 region = os.environ['AWS_REGION']
                 if 'gov' in region:
-                    templateURL='https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/govcloud/install-config-template.yaml'
+                    templateURL='https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/78554b88-0cd8-45a1-b9ee-2c1078aa6995/govcloud/install-config-template.yaml'
                 else:
-                    templateURL='https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/install-config-template.yaml'
+                    templateURL='https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/78554b88-0cd8-45a1-b9ee-2c1078aa6995/config/install-config-template.yaml'
 
-                baseDomain = os.environ['baseDomain']
+                #baseDomain = os.environ['baseDomain']
                 clusterSize = os.environ['clustersize']
                 clusterName = os.environ['clusterName']
                 vpcCIDR = os.environ['vpcCIDR']
-                subentID1 = os.environ['subentID1']
-                subentID2 = os.environ['subentID2']
-                subentID3 = os.environ['subentID3']
-                hostedZoneId = os.environ['hostedZoneId']
+                subnets = os.environ['subnets']
+                #subentID2 = os.environ['subentID2']
+                #subentID3 = os.environ['subentID3']
+                #hostedZoneId = os.environ['hostedZoneId']
                 installconfig_template = "install-config-template.yaml"
                 installconfig = "install-config-wip.yaml"
                 # Download template install-config-template.yaml file
@@ -396,16 +415,14 @@ Resources:
                     filedata = file.read()
                 
                 # Replace the target string
-                filedata = filedata.replace('<BASE_DOMAIN>', baseDomain)
+                #filedata = filedata.replace('<BASE_DOMAIN>', baseDomain)
                 filedata = filedata.replace('<REGION>', region)
                 filedata = filedata.replace('<CONTROLPLANEREPLICA>', controlPlaneReplica)
                 filedata = filedata.replace('<WORKERREPLICA>', workerReplica)
                 filedata = filedata.replace('<CLUSTERNAME>', clusterName)
                 filedata = filedata.replace('<VPCCIDR>', vpcCIDR)
-                filedata = filedata.replace('<PRIVATESUBNET1>', subentID1)
-                filedata = filedata.replace('<PRIVATESUBNET2>', subentID2)
-                filedata = filedata.replace('<PRIVATESUBNET3>', subentID3)
-                filedata = filedata.replace('<HOSTEDZONEID>', hostedZoneId)
+                filedata = filedata.replace('<SUBNETS>', subnets)
+                filedata = filedata.replace('<EXTINT>', externalInternalOCP)
                 
                 # Write file install-config-wip.yaml
                 # This file will be further updated on the Seed EC2 to enter the pull secret and ssh key
@@ -419,6 +436,7 @@ Resources:
                     return exit_status(event, context, cfnresponse.FAILED)
                 # Send success    
                 return exit_status(event, context, cfnresponse.SUCCESS)  
+
       Handler: index.lambda_handler
       Role: !GetAtt LambdaIAMRole.Arn
       Runtime: python3.9
@@ -433,14 +451,12 @@ Resources:
           clusterName: !Ref OCPClusterName
           clustersize: !Ref ClusterSize
           vpcCIDR: !Ref VpcCIDR
-          subentID1: !Ref PrivateSubnet1
-          subentID2: !Ref PrivateSubnet2
-          subentID3: !Ref PrivateSubnet3
+          subnets: !Ref Subnets
           LOG_LEVEL: INFO
-          hostedZoneId: !Ref HostedZoneID
-          baseDomain: !Ref BaseDomain
           bucketName: !Ref PreReqS3Bucket
           openShiftType: !Ref OpenShiftType
+          instanceId: !Ref SeedEC2Instance
+          externalInternalOCP: !Ref ExternalInternalOCP
 
   # Custom resource to call OCP function
   CallCreateInstallConfig:

@@ -6,30 +6,186 @@ Metadata:
   License: MIT-0
 Description: 'CFN Template to create a PHZ and associate with created VPC'
 Parameters:
-  PrivateHostedZone:
+  HostedZoneDNSName:
     Description: Enter the DNS name for PHZ
     Type: String
   openshiftVPCId:
     Description: Enter the VPCId that needs to be associated to the PHZ
     Type: String
+  ClusterVisibility:
+    Description: ClusterVisibility - Private or WorkshopStudio(set in an AWS Led hands on workshop)
+    Default: Private
+    Type: String
+  KMSKey: 
+    Type: String
+    Description: KMS Key ARN to encrypt to RDS
+  DeadLetterSNSTopic: 
+    Type: String
+    Description: Dead Letter SNS Topic  
+
+Conditions:
+  IsPrivate: !Equals [!Ref ClusterVisibility, 'Private']
+  IsWorkshop: !Equals [!Ref ClusterVisibility, 'WorkshopStudio']
 
 Resources:
-## Private Hosted DNS. Associate it with the created VPC      
-  PrivateOCPDNS: 
+  # IAM Role that will be used by Lambda
+  LambdaIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - route53:ListResourceRecordSets
+                - route53:ChangeResourceRecordSets
+                Resource: !Sub arn:aws:route53:::hostedzone/${HostedZoneId}
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: !Sub 'arn:${AWS::Partition}:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !Ref DeadLetterSNSTopic 
+
+  # Install OCP Lambda Function
+  CleanupHostedZoneRecords:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      DeadLetterConfig: 
+        TargetArn: !Ref DeadLetterSNSTopic
+      ReservedConcurrentExecutions: 1
+      KmsKeyArn: !Ref KMSKey
+      Code:
+          ZipFile: |
+            import json
+            import boto3
+            import os
+            import logging
+            import cfnresponse
+
+
+            LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+            logger = logging.getLogger()
+            logger.setLevel(LOG_LEVEL)
+            def exit_status(event, context, status):
+                logger.info(f"exit_status({status})")
+                if ('ResourceType' in event):
+                    if (event['ResourceType'].find('CustomResource') > 0):
+                        logger.info("cfnresponse:" + status)
+                        if ('PhysicalResourceId' in event):
+                            resid=event['PhysicalResourceId']
+                            cfnresponse.send(event, context, status, {}, resid)
+                        else:
+                          cfnresponse.send(event, context, status, {}, None)
+                return status
+
+            def clear_route53_records(hostedZoneId,hostedZoneName):
+              route53 = boto3.client('route53')
+              try:
+                response = route53.list_resource_record_sets(
+                  HostedZoneId=hostedZoneId      
+                )
+                changes = []
+                for record_set in response['ResourceRecordSets']:
+                  if record_set['Type'] in ['NS', 'SOA'] and record_set['Name'] in [hostedZoneName]:
+                    continue
+                  logger.info("Deleting "+ str(record_set))
+                  changes.append({
+                    'Action': 'DELETE',
+                    'ResourceRecordSet': record_set
+                  })
+
+                if changes:
+                  route53.change_resource_record_sets(
+                    HostedZoneId = hostedZoneId,
+                    ChangeBatch = {'Changes': changes}  
+                  )
+
+              except Exception as e:
+                print(f"Error: {e}")
+                return exit_status(event, context, cfnresponse.FAILED)
+
+            def lambda_handler(event, context):
+              route53 = boto3.client('route53')
+              
+              hostedZoneId = os.environ['hostedZoneId']
+              hostedZoneName = os.environ['domainName']+"."
+              
+              if (('RequestType' in event) and (event['RequestType'] == 'Delete')):
+                  # Delete Record sets in route 53
+                  clear_route53_records(hostedZoneId,hostedZoneName)
+                  logger.info("Cfn Delete event - delete route53 recordsets - return Success")
+                  return exit_status(event, context, cfnresponse.SUCCESS)
+              #Return Success    
+              return exit_status(event, context, cfnresponse.SUCCESS)
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaIAMRole.Arn
+      Runtime: python3.11
+      Timeout: 600
+      Environment: 
+        Variables:
+          LOG_LEVEL: INFO
+          hostedZoneId: !Ref HostedZoneId
+          domainName:
+            !If
+              - IsPrivate
+              - !Ref HostedZoneDNSName
+              - !Join [ ".", [!Join [ "", ["mas", !Select [3 , !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId ]]]]  ] ], !Ref HostedZoneDNSName ]]
+
+  # Custom resource to call OCP function
+  CallCleanupHostedZoneRecords:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt CleanupHostedZoneRecords.Arn
+
+  ## Private Hosted DNS. Associate it with the created VPC      
+  HostedZoneId: 
     Type: "AWS::Route53::HostedZone"
     Properties: 
       HostedZoneConfig: 
         Comment: 'Private Hosted Zone for OCP Install'
-      Name: !Ref PrivateHostedZone
-      VPCs: 
-        - 
-          VPCId: !Ref openshiftVPCId
-          VPCRegion: !Ref "AWS::Region"
+      Name: 
+        !If
+            - IsPrivate
+            - !Ref HostedZoneDNSName
+            - !Join [ ".", [!Join [ "", ["mas", !Select [3 , !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId ]]]]  ] ], !Ref HostedZoneDNSName ]]
+      VPCs:
+        !If
+            - IsPrivate      
+            - - 
+                VPCId: !Ref openshiftVPCId
+                VPCRegion: !Ref "AWS::Region"
+            - !Ref AWS::NoValue      
       HostedZoneTags: 
         - 
           Key: 'Name'
-          Value: 'mymaximo'
+          Value: 'mymaximo'          
 Outputs:
   PHZId:
     Description: Hosted Zone ID for the hosted zone created for the DNS Name
-    Value: !Ref PrivateOCPDNS
+    Value: !Ref HostedZoneId
+  DomainName:
+    Description: Domain Name created
+    Value: !If
+            - IsPrivate
+            - !Ref HostedZoneDNSName
+            - !Join [ ".", [!Join [ "", ["mas", !Select [3 , !Split ['-', !Select [2, !Split ['/', !Ref AWS::StackId ]]]]  ] ], !Ref HostedZoneDNSName ]]
