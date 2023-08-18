@@ -135,7 +135,7 @@ Parameters:
     AllowedValues:
       - 'true'
       - 'false'
-  03PrivateHostedZone:
+  03HostedZoneDNSName:
     Description: Enter the DNS name for PHZ
     Type: String
     Default: example.com
@@ -349,9 +349,8 @@ Resources:
         PrivateSubnet3CIDR: !Ref 01PrivateSubnet3CIDR
         UniqueStr: !Ref AWS::StackId
         OCPClusterName: !Ref 05OCPClusterName
-
   ## Stack to create a Private Hosted Zone and associate with the VPC
-   PHZStack:
+  PHZStack:
     Condition: IsDeployPHZ
     Type: AWS::CloudFormation::Stack
     Properties:
