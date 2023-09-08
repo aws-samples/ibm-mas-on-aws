@@ -225,6 +225,11 @@ Resources:
         FromPort: 1433
         ToPort: 1433
         CidrIp: 0.0.0.0/0
+      - Description: "Allow traffic to Internet on Port 27017 - To allow connection to Document DB MongoDB from Bastion"
+        IpProtocol: tcp
+        FromPort: 27017
+        ToPort: 27017
+        CidrIp: 0.0.0.0/0
       VpcId: !Ref VpcId
 
 # IAM Role that will be used by Lambda
