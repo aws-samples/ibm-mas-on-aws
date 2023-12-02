@@ -19,7 +19,8 @@ echo `date "+%Y/%m/%d %H:%M:%S"` "Certificate File ..... " $4
 echo `date "+%Y/%m/%d %H:%M:%S"` "JDBC Url ......... " $3
 
 ## Fetch current AWS region
-EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
+TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone -H "X-aws-ec2-metadata-token: $TOKEN"`
 export AWS_DEFAULT_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
 
 #aws s3 cp $4 /root/install-dir/db_cert.pem --region ${AWS_DEFAULT_REGION}

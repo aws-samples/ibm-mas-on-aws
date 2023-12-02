@@ -20,7 +20,8 @@ if [[ $# -gt 5 ]]; then
     exit
 fi
 echo `date "+%Y/%m/%d %H:%M:%S"` "Setting up the environment variables for MASCore Deployment"
-EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
+TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone -H "X-aws-ec2-metadata-token: $TOKEN"`
 # The MongoDB role in ansible automation requires the AWS_REGION to be set
 export AWS_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
 # BUCKETNAME
