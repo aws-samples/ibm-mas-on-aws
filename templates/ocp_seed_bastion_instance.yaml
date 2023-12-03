@@ -123,7 +123,8 @@ Resources:
           python3 get-pip.py
           python3 -m pip install ansible junit_xml pymongo xmljson jmespath kubernetes==12.0.1 openshift==0.12.1
           # Install ansible collection
-          ansible-galaxy collection install ibm.mas_devops
+          export MAS_DEVOPS_COLLECTION_VERSION=18.3.4
+          ansible-galaxy collection install ibm.mas_devops:==${MAS_DEVOPS_COLLECTION_VERSION}
           # Create Working folder and the MAS config folder
           mkdir -p ~/install-dir/masconfig
           ## Download openshift client and command line installer
