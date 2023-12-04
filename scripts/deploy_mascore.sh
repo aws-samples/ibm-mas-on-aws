@@ -58,9 +58,7 @@ export MAS_INSTANCE_ID=masinst1
 export MAS_CONFIG_DIR=/root/install-dir/masconfig
 export MONGODB_ACTION=install
 
-export SLS_LICENSE_FILE=/root/install-dir/entitlement.lic
-export SLS_LICENSE_ID=`head -1 $SLS_LICENSE_FILE| cut -d" " -f3`
-[ -z "$SLS_LICENSE_ID" ] && echo "Could not fetch SLS License ID. Check the entitlement.lic file" && exit 1
+export SLS_ENTITLEMENT_FILE=/root/install-dir/entitlement.lic
 
 export PULL_SECRET_FILE=/root/install-dir/pull-secret.txt
 [ ! -f "/root/install-dir/pull-secret.txt" ] && echo "pull-secret file not found. Ensure file is present in the pre-requisite s3 bucket" && exit 1
@@ -81,7 +79,6 @@ export UDS_STORAGE_CLASS=$DEFAULT_SC
 
 echo `date "+%Y/%m/%d %H:%M:%S"` "Installing the MAS Operator on the OCP Cluster"
 # Install the MAS Operator
-#ansible-playbook ibm.mas_devops.oneclick_core
 export ROLE_NAME=ibm_catalogs && ansible-playbook ibm.mas_devops.run_role
 export ROLE_NAME=common_services && ansible-playbook ibm.mas_devops.run_role
 export ROLE_NAME=cert_manager && ansible-playbook ibm.mas_devops.run_role
@@ -100,14 +97,7 @@ export ROLE_NAME=cert_manager && ansible-playbook ibm.mas_devops.run_role
 [ ! -f "/root/install-dir/masconfig/mongo-mongoce.yml" ] && echo "Mongo mas config file must be present" && exit 1
 export SLS_NAMESPACE=ibm-sls
 export SLS_MONGODB_CFG_FILE="/root/install-dir/masconfig/mongo-mongoce.yml"
-
-envsubst < /root/ibm-mas-on-aws/config/masocp-products-config-template.yaml > /root/ibm-mas-on-aws/config/masocp-products-config.yaml
-envsubst < /root/ibm-mas-on-aws/config/cloudcredentialrequest-config-template.yaml > /root/ibm-mas-on-aws/config/cloudcredentialrequest-config.yaml
-
 oc new-project "$SLS_NAMESPACE"
-oc create -f /root/ibm-mas-on-aws/config/masocp-products-config.yaml -n "$SLS_NAMESPACE"
-oc create -f /root/ibm-mas-on-aws/config/cloudcredentialrequest-config.yaml -n "$SLS_NAMESPACE"
-
 export ROLE_NAME=sls && ansible-playbook ibm.mas_devops.run_role
 
 # UDS
@@ -129,7 +119,8 @@ if [[ $? -ne 0 ]]; then
         exit 1
 else
         # Create a secret with MAS Credentials
-        EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
+        TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+        EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone -H "X-aws-ec2-metadata-token: $TOKEN"`
         export AWS_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed 's/[a-z]$//'`"
         export MAS_PASSWORD=`oc get secret ${MAS_INSTANCE_ID}-credentials-superuser -n mas-${MAS_INSTANCE_ID}-core -o yaml | yq -r .data.password | base64 -d`
         [ -z "$MAS_PASSWORD" ] && exit 1

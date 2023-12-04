@@ -65,6 +65,10 @@ Parameters:
     Type: String
     Description: If WorkshopStudio then this is External or Internal
     Default: Internal
+  MASDevOpsCollectionVersion:
+    Type: String
+    Description: Version of MAS DevOps Collection to support
+    Default: 18.3.4   
 Resources:
   # Seed Instance Role used by the instance Profile
   SeedInstanceRole:
@@ -123,8 +127,7 @@ Resources:
           python3 get-pip.py
           python3 -m pip install ansible junit_xml pymongo xmljson jmespath kubernetes==12.0.1 openshift==0.12.1
           # Install ansible collection
-          export MAS_DEVOPS_COLLECTION_VERSION=18.3.4
-          ansible-galaxy collection install ibm.mas_devops:==${MAS_DEVOPS_COLLECTION_VERSION}
+          ansible-galaxy collection install ibm.mas_devops:==${MASDevOpsCollectionVersion}
           # Create Working folder and the MAS config folder
           mkdir -p ~/install-dir/masconfig
           ## Download openshift client and command line installer
