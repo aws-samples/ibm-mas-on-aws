@@ -278,6 +278,13 @@ Parameters:
     AllowedValues:
       - 'Private'
       - 'WorkshopStudio'
+  09MigrateDocDB:
+    Description: Do you want to create the DocDB as part of the MAS install
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
 
 Resources:
   IBMEntitlementKeySecret:
@@ -286,7 +293,6 @@ Resources:
     Properties:
       Description: IBM Entitlement Key AWS Secret Manager secret
       SecretString: !Ref 07IBMEntitlementKey
-
   05PreReqS3Bucket:
     Type: AWS::S3::Bucket
     Description: S3 bucket name of the pre-requisite bucket. Naming convention masocp-license-{AWS.Region}-{AWS.AccountNumber}

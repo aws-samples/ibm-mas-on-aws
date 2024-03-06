@@ -524,3 +524,9 @@ Outputs:
   SeedSecurityGroupId:
     Description: Security GroupID of the newly created Private Seed EC2 instance
     Value: !GetAtt SeedSecurityGroup.GroupId
+  SeedInstanceProfile:
+    Description: Seed Instance Profile
+    Value: !Ref SeedInstanceProfile
+  SeedSubnetId:
+    Description: Seed Subnet Id
+    Value: !Ref SeedSubnetId
