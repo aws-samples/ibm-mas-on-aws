@@ -24,6 +24,15 @@ Metadata:
             Parameters:
                 - ClusterVisibility
           - Label:
+              default: Section relevant for Lab04 - Migration from Maximo 7.6.1(EAM) to MAS8.x. Need IBM Tech support to run
+            Parameters:
+                - MigrationWorkshop          
+                - Maximo761AMI
+                - MAS8DB2AMI
+                - VPCId
+                - SubnetId
+                - SecurityGroupId
+          - Label:
               default: Deploy a VPC stack with Public and Private subnets to host the Private OCP cluster. 
             Parameters:
                 - 01VpcCIDR
@@ -75,8 +84,38 @@ Conditions:
   IsIBMEntitlementKeyPresent: !Not [!Equals [!Ref 07IBMEntitlementKey, ""]]
   IsDeployDocDB: !Equals [!Ref 08DeployDocDB, 'true']
   IsPrivate: !Equals [!Ref ClusterVisibility, 'Private']
+  IsMigrationWorkshop: !Equals [!Ref MigrationWorkshop, 'true']
+
 
 Parameters:
+  MigrationWorkshop:
+    Description: Is this a Migration workshop
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  MAS8DB2AMI:
+    Description: AMI for MAS DB2 instance - This will be in the IBM AWS Account
+    Type: String
+    Default: 'amireplacewitheam'
+  Maximo761AMI:
+    Description: AMI for Maximo 761 - This will be in the IBM AWS Account
+    Type: String
+    Default: 'amireplacewitheam'
+  VPCId:
+    Description: Default VPC to host the Maxmo761 instance
+    Type: String
+    Default: 'vpcreplacewithdefault'
+  SubnetId:
+    Description: Default subnet to host the Maxmo761 instance
+    Type: String
+    Default: 'subnetreplacewithdefault'
+  SecurityGroupId:
+    Description: Default subnet to host the Maxmo761 instance
+    Type: String
+    Default: 'sgreplacewithdefault'
+
   00OpenShiftType:
     Description: OpenShift Cluster type - OCP or ROSA ?
     Type: String
@@ -278,21 +317,113 @@ Parameters:
     AllowedValues:
       - 'Private'
       - 'WorkshopStudio'
-  09MigrateDocDB:
-    Description: Do you want to create the DocDB as part of the MAS install
-    Type: String
-    Default: 'true'
-    AllowedValues:
-      - 'true'
-      - 'false'
 
 Resources:
+# MAS Db2 Instance for Migration Lab only
+  MASDb2EC2Instance:
+    Condition: IsMigrationWorkshop
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: 'm6i.xlarge'
+      SecurityGroupIds: [!GetAtt MASDB2SecurityGroup.GroupId]
+      KeyName: !Ref MASOCPKeyPair
+      ImageId: !Ref 'MAS8DB2AMI'
+      IamInstanceProfile: !GetAtt SeedBastionStack.Outputs.SeedInstanceProfile
+      SubnetId: !GetAtt SeedBastionStack.Outputs.SeedSubnetId
+      BlockDeviceMappings:
+      - DeviceName: "/dev/xvda"
+        Ebs:
+          Encrypted: 'true'
+          VolumeSize: '20'
+          VolumeType: gp3
+      Tags: 
+        - Key: 'Name'
+          Value: 'MASDb2EC2Instance'
+
+# IBM DB2 Instance Security group. Allow SSH from anywhere
+  MASDB2SecurityGroup:
+    Condition: IsMigrationWorkshop
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+      - Description: "Allow traffic on Port 22 from the Bastion Security group"
+        IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        SourceSecurityGroupId: !GetAtt SeedBastionStack.Outputs.BastionSecurityGroupId
+      - Description: "Allow traffic on Port 50001 from the Bastion Security group"
+        IpProtocol: tcp
+        FromPort: 50001
+        ToPort: 50001
+        SourceSecurityGroupId: !GetAtt SeedBastionStack.Outputs.BastionSecurityGroupId    
+      - Description: "Allow traffic on Port 50001 from the Private Subnet 1 CIDR Ips"
+        IpProtocol: tcp
+        FromPort: 50001
+        ToPort: 50001
+        CidrIp: !Ref 01PrivateSubnet1CIDR
+      - Description: "Allow traffic on Port 50001 from the Private Subnet 2 CIDR Ips"
+        IpProtocol: tcp
+        FromPort: 50001
+        ToPort: 50001
+        CidrIp: !Ref 01PrivateSubnet2CIDR 
+      - Description: "Allow traffic on Port 50001 from the Private Subnet 3 CIDR Ips"
+        IpProtocol: tcp
+        FromPort: 50001
+        ToPort: 50001
+        CidrIp: !Ref 01PrivateSubnet3CIDR 
+      SecurityGroupEgress:
+      - Description: "Allow traffic to Internet on Port 80"
+        IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - Description: "Allow traffic to Internet on Port 443"
+        IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      - Description: "Allow traffic to Internet on Port 6443"
+        IpProtocol: tcp
+        FromPort: 6443
+        ToPort: 6443
+        CidrIp: 0.0.0.0/0      
+      - Description: "Allow traffic to Internet on Port 22"
+        IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      VpcId: !GetAtt ExistingVPCStack.Outputs.outputVPC
+
+  MaximoEC2Instance:
+    Condition: IsMigrationWorkshop
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: m6i.xlarge
+      ImageId: !Ref Maximo761AMI 
+      KeyName: !Ref MASOCPKeyPair
+      IamInstanceProfile: !GetAtt SeedBastionStack.Outputs.SeedInstanceProfile
+      SecurityGroupIds:
+        - !Ref SecurityGroupId 
+      SubnetId: !Ref SubnetId 
+      Tags: 
+        - Key: 'Name'
+          Value: 'EAMEC2Instance'
+
   IBMEntitlementKeySecret:
     Condition: IsIBMEntitlementKeyPresent
     Type: AWS::SecretsManager::Secret
     Properties:
       Description: IBM Entitlement Key AWS Secret Manager secret
       SecretString: !Ref 07IBMEntitlementKey
+
+  DB2BackupS3Bucket:
+    Type: AWS::S3::Bucket
+    Condition: IsMigrationWorkshop
+    Description: S3 bucket name to store db2 backup. Naming convention masocp-license-{AWS.Region}-{AWS.AccountNumber}
+    Properties:
+      BucketName: !Sub db2-backup-${AWS::Region}-${AWS::AccountId}
+
   05PreReqS3Bucket:
     Type: AWS::S3::Bucket
     Description: S3 bucket name of the pre-requisite bucket. Naming convention masocp-license-{AWS.Region}-{AWS.AccountNumber}
