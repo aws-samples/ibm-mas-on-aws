@@ -48,7 +48,7 @@ wget -q ${DBCRT} -P /root/install-dir/
 aws s3 cp /root/install-dir/${AWS_DEFAULT_REGION}-bundle.pem s3://${BUCKETNAME}/${AWS_DEFAULT_REGION}-bundle.pem --region ${AWS_DEFAULT_REGION}
 
 # Download the container-runtime-config.yml
-wget -q https://ee-assets-prod-us-east-1.s3.amazonaws.com/modules/59674cf6b6e04aa19cd95f91d5d0dca7/v1/container-runtime-config.yml -P /root/install-dir/
+wget -q https://ws-assets-prod-iad-r-iad-ed304a55c2ca1aee.s3.us-east-1.amazonaws.com/78554b88-0cd8-45a1-b9ee-2c1078aa6995/config/container-runtime-config.yml -P /root/install-dir/
 [ ! -f "/root/install-dir/container-runtime-config.yml" ] && echo "The container-runtime-config.yml could not be downloaded" && exit 1
 aws s3 cp /root/install-dir/container-runtime-config.yml s3://${BUCKETNAME}/container-runtime-config.yml --region ${AWS_DEFAULT_REGION}
 
